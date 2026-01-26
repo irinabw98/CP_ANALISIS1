@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ANOVA + Tukey (por grupos)</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="top">
+      <h1>ANOVA + Tukey (por grupos)</h1>
+      <p>Pegá tu tabla (con encabezados). Elegí columnas de agrupamiento. Descargá el Excel con la misma tabla + columnas de resultado.</p>
+    </header>
+
+    <section class="card">
+      <h2>1) Pegar datos</h2>
+      <p class="hint">Acepta TSV (copiado desde Excel) o CSV. Primera fila = encabezados.</p>
+      <textarea id="paste" placeholder="Pegá acá tu tabla..."></textarea>
+      <div class="row">
+        <button id="btnParse">Cargar / Previsualizar</button>
+        <span id="status" class="status"></span>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>2) Configurar columnas</h2>
+      <div class="grid">
+        <div>
+          <label>Columna de valores (assessment_value)</label>
+          <select id="valueCol"></select>
+        </div>
+        <div>
+          <label>Columna de tratamientos (treatment)</label>
+          <select id="treatmentCol"></select>
+        </div>
+        <div>
+          <label>Alpha (Tukey)</label>
+          <input id="alpha" type="number" step="0.001" min="0.001" max="0.2" value="0.05" />
+        </div>
+      </div>
+
+      <div class="grouping">
+        <label>Columnas para agrupar (elegí todas las que “parten” el análisis)</label>
+        <div id="groupCols" class="chips"></div>
+      </div>
+
+      <div class="row">
+        <button id="btnAnalyze" class="primary" disabled>Ejecutar y descargar Excel</button>
+        <span class="hint">Backend: http://localhost:8000/analyze</span>
+      </div>
+      <p class="hint">
+        El Excel descargado contiene: tu tabla original + columnas agregadas (group_key, analysis_name, n/mean/sd, letras Tukey, y ANOVA por grupo).
+      </p>
+    </section>
+
+    <section class="card">
+      <h2>3) Vista previa</h2>
+      <div class="tableWrap">
+        <table id="preview"></table>
+      </div>
+    </section>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
