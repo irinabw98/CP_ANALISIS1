@@ -1,23 +1,86 @@
-# ANOVA + Tukey (por grupos) - MVP
+# 🌙 CP_ANALISIS1 — ANOVA + Tukey (por grupos)
 
-Este proyecto permite:
-- Pegar una tabla (copiada desde Excel) en el frontend.
-- Elegir columnas para segmentar/agrupamiento (por ejemplo: trial, se_name, timing, part, etc.).
-- Ejecutar ANOVA dentro de cada grupo y clasificar con Tukey HSD (alpha por defecto 0.05).
-- Descargar un Excel con **la misma tabla** + columnas agregadas:
-  - `group_key` (concatenación de columnas de agrupamiento)
-  - `analysis_name`
-  - `n`, `mean`, `sd`, `tukey_letters` (por tratamiento dentro de cada grupo)
-  - `df`, `F`, `pvalue`, `df_resid` (ANOVA por grupo, replicado por fila)
+Una app web para convertir una tabla pegada desde Excel en un análisis estadístico **listo para descargar**.
 
-## Ejecutar backend
+👉 Pegás datos → elegís cómo agrupar → corrés **ANOVA + Tukey (α = 0.05)** → descargás un Excel con tu misma tabla + columnas de resultado.
 
-```bash
-cd backend
-pip install -r requirements.txt
-uvicorn app:app --reload --port 8000
-```
+---
 
-## Ejecutar frontend
+## ✨ ¿Qué vas a poder hacer acá?
 
-Abrí `frontend/index.html` en el navegador.
+- **Pegar tu tabla directamente** (TSV desde Excel o CSV).
+- Elegir:
+  - **Columna de valores** (por defecto `assessment_value`)
+  - **Columna de tratamientos** (`treatment`)
+  - **Columnas para agrupar** (las que “parten” el análisis: protocolo, trial, momento, se_name, etc.)
+- Ejecutar el análisis por cada grupo definido.
+- Descargar un Excel con:
+  - Tu tabla original
+  - `group_key` (identificador del grupo)
+  - `analysis_name` (nombre del análisis)
+  - `assessment_value_num` (la versión numérica real del valor, robusta a coma decimal)
+  - Estadísticos por tratamiento: `n`, `mean`, `sd`
+  - Letras de Tukey: `tukey_letters`
+  - ANOVA por grupo: `F`, `pvalue`, `df`, `df_resid`
+  - Hojas extra con detalle: `anova_detail` y `tukey_pairs_detail`
+
+---
+
+## 🧠 Cómo pensar el flujo (mentalidad de experimento)
+
+Tu tabla tiene muchas columnas, pero el análisis necesita 3 conceptos:
+
+1. **Valor**: lo que mediste → `assessment_value`
+2. **Tratamiento**: lo que comparás → `treatment`
+3. **Grupo**: el contexto del experimento → columnas que segmentan el análisis  
+   (por ejemplo: `trial + se_name + timing + part_rated_code`)
+
+Cada combinación de “grupo” genera un ANOVA independiente.
+
+---
+
+## ✅ Requisitos de la tabla
+
+La tabla debe incluir al menos:
+
+- `assessment_value`
+- `treatment`
+
+Y puede incluir cualquier cantidad de columnas extra (no hay límite práctico).
+
+📌 Tip: pegá la tabla desde Excel (copiar y pegar) para que se detecte como TSV automáticamente.
+
+---
+
+## 🖥️ Tecnologías
+
+**Frontend**
+- HTML + CSS + JavaScript (GitHub Pages)
+
+**Backend**
+- Python + FastAPI
+- Pandas / NumPy
+- Statsmodels (ANOVA + Tukey)
+- Export a Excel con OpenPyXL
+
+**Deploy**
+- Frontend: GitHub Pages
+- Backend: Render
+
+---
+
+## 🌐 Uso online
+
+- Frontend: GitHub Pages del repo
+- Backend: Render (endpoint `/analyze`)
+
+---
+
+## 🧪 Estado del proyecto
+
+MVP funcional ✅  
+Próximos upgrades:
+- Estética mejorada (violeta/lila)
+- Validaciones y mensajes más “humanos”
+- Gráficos
+- Historial / trazabilidad de análisis
