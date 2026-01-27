@@ -5,6 +5,8 @@ const btnParse = $("btnParse");
 const btnAnalyze = $("btnAnalyze");
 const status = $("status");
 const preview = $("preview");
+const btnClear = $("btnClear");
+
 
 const valueColSel = $("valueCol");
 const treatmentColSel = $("treatmentCol");
@@ -184,6 +186,20 @@ const res = await fetch(`${API_BASE}/analyze`, {
     document.body.appendChild(a);
     a.click();
     a.remove();
+
+    btnClear.addEventListener("click", () => {
+  paste.value = "";
+  currentRows = [];
+  currentCols = [];
+  selectedGroupCols = new Set();
+  preview.innerHTML = "";
+  valueColSel.innerHTML = "";
+  treatmentColSel.innerHTML = "";
+  groupColsBox.innerHTML = "";
+  btnAnalyze.disabled = true;
+  status.textContent = "Tabla limpiada.";
+});
+
 
     URL.revokeObjectURL(url);
     status.textContent = "Listo. Se descargó el Excel con tu tabla + columnas de resultado.";
