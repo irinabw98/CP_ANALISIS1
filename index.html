@@ -3,62 +3,91 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>ANOVA + Tukey (por grupos)</title>
+  <title>CP_ANALISIS1 · ANOVA + Tukey (por grupos)</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
+
 <body>
   <div class="app">
     <header class="top">
-      <h1>ANOVA + Tukey (por grupos)</h1>
-      <p>Pegá tu tabla (con encabezados). Elegí columnas de agrupamiento. Descargá el Excel con la misma tabla + columnas de resultado.</p>
+      <div class="brand">
+        <div class="badge">CP</div>
+        <div>
+          <h1>ANOVA + Tukey (por grupos)</h1>
+          <p class="subtitle">
+            Pegá tu tabla, definí cómo se segmenta el experimento y descargá un Excel con tu misma data + resultados.
+          </p>
+        </div>
+      </div>
+
+      <div class="hero">
+        <p>
+          Esto está pensado para análisis rápidos de ensayos: vos definís el <b>valor</b>, el <b>tratamiento</b> y las columnas que
+          forman cada <b>grupo</b>. El backend corre el análisis y te devuelve el archivo listo.
+        </p>
+      </div>
     </header>
 
     <section class="card">
       <h2>1) Pegar datos</h2>
-      <p class="hint">Acepta TSV (copiado desde Excel) o CSV. Primera fila = encabezados.</p>
+      <p class="hint">Acepta TSV (copiado desde Excel) o CSV. La primera fila debe ser encabezados.</p>
+
       <textarea id="paste" placeholder="Pegá acá tu tabla..."></textarea>
+
       <div class="row">
         <button id="btnParse">Cargar / Previsualizar</button>
+        <button id="btnClear" class="ghost" type="button">Limpiar</button>
         <span id="status" class="status"></span>
       </div>
     </section>
-<button id="btnParse">Cargar / Previsualizar</button>
-<button id="btnClear" class="ghost">Limpiar</button>
-<span id="status" class="status"></span>
 
     <section class="card">
-      <h2>2) Configurar columnas</h2>
+      <h2>2) Configurar el análisis</h2>
+
       <div class="grid">
         <div>
-          <label>Columna de valores (assessment_value)</label>
+          <label>Columna de valores</label>
           <select id="valueCol"></select>
+          <p class="mini">Ej: <code>assessment_value</code></p>
         </div>
+
         <div>
-          <label>Columna de tratamientos (treatment)</label>
+          <label>Columna de tratamientos</label>
           <select id="treatmentCol"></select>
+          <p class="mini">Ej: <code>treatment</code></p>
         </div>
+
         <div>
           <label>Alpha (Tukey)</label>
           <input id="alpha" type="number" step="0.001" min="0.001" max="0.2" value="0.05" />
+          <p class="mini">Por defecto: 0.05</p>
         </div>
       </div>
 
       <div class="grouping">
-        <label>Columnas para agrupar (elegí todas las que “parten” el análisis)</label>
+        <label>Columnas para agrupar</label>
+        <p class="hint">
+          Elegí todas las columnas que “parten” el experimento (momento, trial, parte evaluada, etc).
+          Cada combinación define un grupo con su propio ANOVA.
+        </p>
         <div id="groupCols" class="chips"></div>
       </div>
 
       <div class="row">
         <button id="btnAnalyze" class="primary" disabled>Ejecutar y descargar Excel</button>
-        <span class="hint">Backend: http://localhost:8000/analyze</span>
+        <span class="pill">Online · Render</span>
       </div>
+
       <p class="hint">
-        El Excel descargado contiene: tu tabla original + columnas agregadas (group_key, analysis_name, n/mean/sd, letras Tukey, y ANOVA por grupo).
+        El Excel descargado incluye tu tabla + <code>group_key</code>, <code>analysis_name</code>, <code>assessment_value_num</code>,
+        resumen por tratamiento y resultados del ANOVA/Tukey.
       </p>
     </section>
 
     <section class="card">
       <h2>3) Vista previa</h2>
+      <p class="hint">Vas a ver las primeras filas para confirmar que el pegado quedó bien.</p>
+
       <div class="tableWrap">
         <table id="preview"></table>
       </div>
