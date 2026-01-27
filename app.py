@@ -110,7 +110,7 @@ def _to_numeric_series_strong(s: pd.Series) -> pd.Series:
     """
     s2 = s.astype(str).str.strip()
 
-    # quitar todo excepto dígitos, coma, punto y signo menos
+    # dejar solo dígitos, coma, punto y signo menos
     s2 = s2.str.replace(r"[^0-9,\.\-]", "", regex=True)
 
     def _one(x: str):
@@ -131,7 +131,6 @@ def _to_numeric_series_strong(s: pd.Series) -> pd.Series:
             if "," in x:
                 x = x.replace(".", "")
                 x = x.replace(",", ".")
-            # Solo punto -> decimal punto (ok)
 
         try:
             return float(x)
@@ -153,7 +152,7 @@ def _run_group_analysis(
     if gdf.empty:
         raise ValueError("Grupo sin datos luego de limpiar NA.")
 
-    # asegurar numérico (ya debería venir numérico, pero doble seguro)
+    # asegurar numérico
     gdf[value_col_num] = pd.to_numeric(gdf[value_col_num], errors="coerce")
     gdf = gdf.dropna(subset=[value_col_num])
     if gdf.empty:
@@ -231,10 +230,11 @@ def analyze(payload: Dict[str, Any] = Body(...)) -> StreamingResponse:
     # Normalizaciones
     df[treatment_col] = df[treatment_col].astype(str)
 
-    # ✅ Columna numérica explícita (queda en el Excel)
+    # ✅ columnas numéricas explícitas
     df["assessment_value_num"] = _to_numeric_series_strong(df[value_col])
+    df["assessment_value_x1"] = df["assessment_value_num"] * 1.0  # fuerza float para Excel
 
-    # ✅ borrar filas sin número
+    # ✅ borrar filas sin número (y por ende sin análisis)
     df = df.dropna(subset=["assessment_value_num"])
 
     # Columnas extra
@@ -244,16 +244,16 @@ def analyze(payload: Dict[str, Any] = Body(...)) -> StreamingResponse:
     else:
         df["group_key"] = "ALL"
 
-    summaries = []
-    anovas = []
-    pairs = []
+    summaries: List[pd.DataFrame] = []
+    anovas: List[pd.DataFrame] = []
+    pairs: List[pd.DataFrame] = []
 
     value_col_num = "assessment_value_num"
 
     if group_cols:
         grouped = df.groupby(group_cols, dropna=False, sort=False)
         for keys, gdf in grouped:
-            key_dict = {}
+            key_dict: Dict[str, Any] = {}
             if isinstance(keys, tuple):
                 for col, val in zip(group_cols, keys):
                     key_dict[col] = val
@@ -302,10 +302,23 @@ def analyze(payload: Dict[str, Any] = Body(...)) -> StreamingResponse:
             for c in anova_cols:
                 final_df[c] = anova_df.iloc[0][c] if len(anova_df) else np.nan
 
-    # ✅ Forzar group_key a columna A (posición 0, garantizado)
+    # ✅ Orden FINAL de columnas (blindado)
+    # Queremos A) group_key, B) originales, C) columnas calculadas
+    original_cols = list(pd.DataFrame(rows).columns)
+
+    # asegurarnos que group_key quede primero sí o sí
     if "group_key" in final_df.columns:
-        gk = final_df.pop("group_key")
+        gk = final_df["group_key"]
+        final_df = final_df.drop(columns=["group_key"])
         final_df.insert(0, "group_key", gk)
+
+    # opcional: hacer que estas queden “adelante” también
+    preferred_front = ["analysis_name", "assessment_value_num", "assessment_value_x1"]
+    for col in reversed(preferred_front):
+        if col in final_df.columns:
+            s_col = final_df[col]
+            final_df = final_df.drop(columns=[col])
+            final_df.insert(1, col, s_col)  # quedan pegaditas después de group_key
 
     # Export Excel
     output = io.BytesIO()
@@ -335,3 +348,8 @@ def analyze(payload: Dict[str, Any] = Body(...)) -> StreamingResponse:
 def health():
     return {"status": "ok"}
 
+
+# ✅ Para chequear si Render está corriendo ESTA versión del código
+@app.get("/version")
+def version():
+    return {"version": "2026-01-27-keyfirst-num-x1-v1"}
