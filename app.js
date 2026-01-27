@@ -1,12 +1,13 @@
 const API_BASE = "https://cp-analisis1.onrender.com";
+
 const $ = (id) => document.getElementById(id);
+
 const paste = $("paste");
 const btnParse = $("btnParse");
 const btnAnalyze = $("btnAnalyze");
+const btnClear = $("btnClear");
 const status = $("status");
 const preview = $("preview");
-const btnClear = $("btnClear");
-
 
 const valueColSel = $("valueCol");
 const treatmentColSel = $("treatmentCol");
@@ -27,8 +28,8 @@ function parseTable(text) {
     delim = firstLine.includes(",") ? "," : (firstLine.includes(";") ? ";" : "\t");
   }
 
-  const lines = raw.split(/\r?\n/).filter(l => l.trim().length > 0);
-  const header = lines[0].split(delim).map(h => h.trim());
+  const lines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  const header = lines[0].split(delim).map((h) => h.trim());
   const cols = header;
 
   const rows = [];
@@ -49,7 +50,7 @@ function renderPreview(cols, rows, maxRows = 30) {
 
   const thead = document.createElement("thead");
   const trh = document.createElement("tr");
-  cols.forEach(c => {
+  cols.forEach((c) => {
     const th = document.createElement("th");
     th.textContent = c;
     trh.appendChild(th);
@@ -58,9 +59,9 @@ function renderPreview(cols, rows, maxRows = 30) {
   preview.appendChild(thead);
 
   const tbody = document.createElement("tbody");
-  rows.slice(0, maxRows).forEach(r => {
+  rows.slice(0, maxRows).forEach((r) => {
     const tr = document.createElement("tr");
-    cols.forEach(c => {
+    cols.forEach((c) => {
       const td = document.createElement("td");
       td.textContent = r[c] ?? "";
       tr.appendChild(td);
@@ -72,7 +73,7 @@ function renderPreview(cols, rows, maxRows = 30) {
 
 function fillSelect(selectEl, cols, preferredName) {
   selectEl.innerHTML = "";
-  cols.forEach(c => {
+  cols.forEach((c) => {
     const opt = document.createElement("option");
     opt.value = c;
     opt.textContent = c;
@@ -85,7 +86,7 @@ function renderGroupChips(cols, exclude = []) {
   groupColsBox.innerHTML = "";
   selectedGroupCols = new Set();
 
-  cols.forEach(c => {
+  cols.forEach((c) => {
     if (exclude.includes(c)) return;
 
     const chip = document.createElement("div");
@@ -105,6 +106,22 @@ function renderGroupChips(cols, exclude = []) {
     groupColsBox.appendChild(chip);
   });
 }
+
+// ✅ LIMPIAR: va afuera, se registra una sola vez
+btnClear.addEventListener("click", () => {
+  paste.value = "";
+  currentRows = [];
+  currentCols = [];
+  selectedGroupCols = new Set();
+
+  preview.innerHTML = "";
+  valueColSel.innerHTML = "";
+  treatmentColSel.innerHTML = "";
+  groupColsBox.innerHTML = "";
+
+  btnAnalyze.disabled = true;
+  status.textContent = "Tabla limpiada.";
+});
 
 btnParse.addEventListener("click", () => {
   try {
@@ -134,7 +151,7 @@ btnParse.addEventListener("click", () => {
   }
 });
 
-[valueColSel, treatmentColSel].forEach(sel => {
+[valueColSel, treatmentColSel].forEach((sel) => {
   sel.addEventListener("change", () => {
     if (!currentCols.length) return;
     const exclude = [valueColSel.value, treatmentColSel.value];
@@ -145,14 +162,17 @@ btnParse.addEventListener("click", () => {
 btnAnalyze.addEventListener("click", async () => {
   if (!currentRows.length) return;
 
-  const analysisName = prompt("Nombre del análisis (se usará en el Excel y el nombre del archivo):", "ANOVA_Tukey");
+  const analysisName = prompt(
+    "Nombre del análisis (se usará en el Excel y el nombre del archivo):",
+    "ANOVA_Tukey"
+  );
   if (!analysisName || !analysisName.trim()) {
     status.textContent = "Cancelado: se requiere un nombre de análisis.";
     return;
   }
 
   btnAnalyze.disabled = true;
-  status.textContent = "Ejecutando análisis en backend...";
+  status.textContent = "Ejecutando análisis en backend online...";
 
   const payload = {
     rows: currentRows,
@@ -160,16 +180,15 @@ btnAnalyze.addEventListener("click", async () => {
     treatment_col: treatmentColSel.value,
     group_cols: Array.from(selectedGroupCols),
     alpha: Number(alphaInput.value || 0.05),
-    analysis_name: analysisName.trim()
+    analysis_name: analysisName.trim(),
   };
 
   try {
-const res = await fetch(`${API_BASE}/analyze`, {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(payload)
-});
-;
+    const res = await fetch(`${API_BASE}/analyze`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
 
     if (!res.ok) {
       const txt = await res.text();
@@ -187,24 +206,11 @@ const res = await fetch(`${API_BASE}/analyze`, {
     a.click();
     a.remove();
 
-    btnClear.addEventListener("click", () => {
-  paste.value = "";
-  currentRows = [];
-  currentCols = [];
-  selectedGroupCols = new Set();
-  preview.innerHTML = "";
-  valueColSel.innerHTML = "";
-  treatmentColSel.innerHTML = "";
-  groupColsBox.innerHTML = "";
-  btnAnalyze.disabled = true;
-  status.textContent = "Tabla limpiada.";
-});
-
-
     URL.revokeObjectURL(url);
     status.textContent = "Listo. Se descargó el Excel con tu tabla + columnas de resultado.";
   } catch (e) {
-    status.textContent = "Error ejecutando el análisis. Verificá que el backend esté corriendo en :8000.";
+    status.textContent =
+      "Error: el backend online no respondió. Probá abrir /health en Render y revisá CORS/logs.";
     console.error(e);
   } finally {
     btnAnalyze.disabled = false;
