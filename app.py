@@ -39,7 +39,6 @@ def _compact_letter_display(tukey_df: pd.DataFrame, treatments: List[str]) -> Di
     idx = {t: i for i, t in enumerate(tset)}
     n = len(tset)
 
-    # nodiff[i,j] = True si NO hay diferencia significativa entre i y j
     nodiff = np.eye(n, dtype=bool)
 
     for _, r in tukey_df.iterrows():
@@ -57,7 +56,6 @@ def _compact_letter_display(tukey_df: pd.DataFrame, treatments: List[str]) -> Di
 
     letter_i = 0
     while remaining:
-        # soporte > 26 letras: a..z, aa..az, ba..bz, ...
         if letter_i < 26:
             letter = letters[letter_i]
         else:
@@ -67,7 +65,6 @@ def _compact_letter_display(tukey_df: pd.DataFrame, treatments: List[str]) -> Di
 
         rem_list = list(remaining)
 
-        # seed por mayor grado de no-diferencia dentro del conjunto restante
         degrees = []
         for t in rem_list:
             i = idx[t]
@@ -76,7 +73,6 @@ def _compact_letter_display(tukey_df: pd.DataFrame, treatments: List[str]) -> Di
         degrees.sort(reverse=True)
         seed = degrees[0][1]
 
-        # armar "clique" greedy: agregar cand si es nodiff con todos los del grupo actual
         group = [seed]
         for cand in rem_list:
             if cand == seed:
@@ -95,19 +91,34 @@ def _compact_letter_display(tukey_df: pd.DataFrame, treatments: List[str]) -> Di
 
         letter_i += 1
 
-    # Asignación final: un tratamiento recibe una letra si es nodiff con todos los miembros del grupo-letra
     out = {t: "" for t in tset}
     for letter, members in letter_groups:
         for t in tset:
             if all(nodiff[idx[t], idx[m]] for m in members):
                 out[t] += letter
 
-    # fallback por si alguno quedó vacío
     for t in tset:
         if out[t] == "":
             out[t] = "a"
 
     return out
+
+
+def _to_numeric_series_strong(s: pd.Series) -> pd.Series:
+    """
+    Convierte series con formatos típicos de Excel ES:
+      - "0,00" -> 0.00
+      - "1.234,56" -> 1234.56
+      - " 12 " -> 12
+    """
+    s2 = s.astype(str).str.strip()
+
+    # borrar separadores de miles (.)
+    s2 = s2.str.replace(".", "", regex=False)
+    # convertir coma decimal a punto
+    s2 = s2.str.replace(",", ".", regex=False)
+
+    return pd.to_numeric(s2, errors="coerce")
 
 
 def _run_group_analysis(
@@ -124,44 +135,32 @@ def _run_group_analysis(
     """
     gdf = gdf.copy()
 
-    # limpiar NA
     gdf = gdf[[value_col, trt_col]].dropna()
-
     if gdf.empty:
         raise ValueError("Grupo sin datos luego de limpiar NA.")
 
-    # asegurar numérico
-    gdf[value_col] = pd.to_numeric(gdf[value_col], errors="coerce")
+    # Asegurar numérico (robusto a coma decimal)
+    gdf[value_col] = _to_numeric_series_strong(gdf[value_col])
     gdf = gdf.dropna(subset=[value_col])
-
     if gdf.empty:
-        raise ValueError("Grupo sin valores numéricos en assessment_value.")
+        raise ValueError(f"Grupo sin valores numéricos en {value_col}.")
 
-    # treatment como string
     gdf[trt_col] = gdf[trt_col].astype(str)
     uniq_trt = sorted(gdf[trt_col].unique().tolist())
-
     if len(uniq_trt) < 2:
         raise ValueError("Grupo con menos de 2 tratamientos (no se puede ANOVA/Tukey).")
 
-    # ANOVA (OLS)
     model = ols(f"Q('{value_col}') ~ C(Q('{trt_col}'))", data=gdf).fit()
     an = anova_lm(model, typ=2)
 
     factor_row = an.iloc[0]
     anova_out = pd.DataFrame([{
-        # Forzar columna de valores a numérico
-df[value_col] = pd.to_numeric(df[value_col], errors="coerce")
         "df": float(factor_row.get("df", np.nan)),
         "F": float(factor_row.get("F", np.nan)),
         "pvalue": float(factor_row.get("PR(>F)", np.nan)),
         "df_resid": float(an.iloc[1].get("df", np.nan)),
-# Eliminar filas sin valor numérico
-df = df.dropna(subset=[value_col])
-
     }])
 
-    # Tukey
     tuk = pairwise_tukeyhsd(endog=gdf[value_col].values, groups=gdf[trt_col].values, alpha=alpha)
     tuk_df = pd.DataFrame(tuk._results_table.data[1:], columns=tuk._results_table.data[0])
     tuk_df["reject"] = tuk_df["reject"].astype(bool)
@@ -193,17 +192,6 @@ def _make_group_key(row: pd.Series, group_cols: List[str]) -> str:
 
 @app.post("/analyze")
 def analyze(payload: Dict[str, Any] = Body(...)) -> StreamingResponse:
-    """
-    payload esperado:
-    {
-      "rows": [ {col: val, ...}, ... ],
-      "value_col": "assessment_value",
-      "treatment_col": "treatment",
-      "group_cols": ["trial", "se_name", ...],
-      "alpha": 0.05,
-      "analysis_name": "Mi analisis"
-    }
-    """
     rows = payload.get("rows")
     value_col = payload.get("value_col", "assessment_value")
     treatment_col = payload.get("treatment_col", "treatment")
@@ -218,27 +206,28 @@ def analyze(payload: Dict[str, Any] = Body(...)) -> StreamingResponse:
 
     df = pd.DataFrame(rows)
 
-    # validar columnas base
     missing = [c for c in [value_col, treatment_col] if c not in df.columns]
     if missing:
         raise HTTPException(status_code=400, detail=f"Faltan columnas requeridas: {missing}")
 
-    # validar group_cols
     for c in group_cols:
         if c not in df.columns:
             raise HTTPException(status_code=400, detail=f"Columna de agrupamiento no existe: {c}")
 
-    # normalizaciones
+    # Normalizaciones
     df[treatment_col] = df[treatment_col].astype(str)
 
-    # columnas requeridas por vos
+    # Forzar numérico en columna de valores (robusto a coma decimal)
+    df[value_col] = _to_numeric_series_strong(df[value_col])
+    df = df.dropna(subset=[value_col])
+
+    # Columnas extra
     df["analysis_name"] = analysis_name
     if group_cols:
         df["group_key"] = df.apply(lambda r: _make_group_key(r, group_cols), axis=1)
     else:
         df["group_key"] = "ALL"
 
-    # correr análisis por grupo
     summaries = []
     anovas = []
     pairs = []
@@ -279,7 +268,6 @@ def analyze(payload: Dict[str, Any] = Body(...)) -> StreamingResponse:
     anova_df = pd.concat(anovas, ignore_index=True) if anovas else pd.DataFrame()
     pairs_df = pd.concat(pairs, ignore_index=True) if pairs else pd.DataFrame()
 
-    # construir tabla final: "misma tabla" + resultados
     base_df = df.copy().rename(columns={treatment_col: "treatment"})
     if not summary_df.empty:
         merge_keys = (group_cols if group_cols else []) + ["treatment"]
@@ -287,7 +275,6 @@ def analyze(payload: Dict[str, Any] = Body(...)) -> StreamingResponse:
     else:
         final_df = base_df
 
-    # anexar ANOVA por grupo como columnas
     if not anova_df.empty:
         anova_cols = [c for c in ["df", "F", "pvalue", "df_resid", "error"] if c in anova_df.columns]
         if group_cols:
@@ -297,16 +284,13 @@ def analyze(payload: Dict[str, Any] = Body(...)) -> StreamingResponse:
             for c in anova_cols:
                 final_df[c] = anova_df.iloc[0][c] if len(anova_df) else np.nan
 
-# reordenar: group_key primero, después las originales, después las agregadas
-original_cols = list(pd.DataFrame(rows).columns)
+    # Reordenar: group_key primero (columna A), luego originales, luego agregadas
+    original_cols = list(pd.DataFrame(rows).columns)
+    front = ["group_key"] + [c for c in original_cols if c in final_df.columns and c != "group_key"]
+    added = [c for c in final_df.columns if c not in front]
+    final_df = final_df[front + added]
 
-front = ["group_key"] + [c for c in original_cols if c in final_df.columns and c != "group_key"]
-added = [c for c in final_df.columns if c not in front]
-
-final_df = final_df[front + added]
-
-
-    # export excel
+    # Export Excel
     output = io.BytesIO()
     safe_name = "".join(ch if ch.isalnum() or ch in (" ", "_", "-") else "_" for ch in analysis_name).strip()
     if safe_name == "":
@@ -322,6 +306,7 @@ final_df = final_df[front + added]
     output.seek(0)
     filename = f"{safe_name}_anova_tukey.xlsx"
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+
     return StreamingResponse(
         output,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -332,5 +317,3 @@ final_df = final_df[front + added]
 @app.get("/health")
 def health():
     return {"status": "ok"}
-
-
