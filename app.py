@@ -150,10 +150,15 @@ def _run_group_analysis(
 
     factor_row = an.iloc[0]
     anova_out = pd.DataFrame([{
+        # Forzar columna de valores a numérico
+df[value_col] = pd.to_numeric(df[value_col], errors="coerce")
         "df": float(factor_row.get("df", np.nan)),
         "F": float(factor_row.get("F", np.nan)),
         "pvalue": float(factor_row.get("PR(>F)", np.nan)),
         "df_resid": float(an.iloc[1].get("df", np.nan)),
+# Eliminar filas sin valor numérico
+df = df.dropna(subset=[value_col])
+
     }])
 
     # Tukey
@@ -327,4 +332,5 @@ final_df = final_df[front + added]
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
 
