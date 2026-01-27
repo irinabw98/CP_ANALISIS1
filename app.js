@@ -1,5 +1,5 @@
+const API_BASE = "https://cp-analisis1.onrender.com";
 const $ = (id) => document.getElementById(id);
-
 const paste = $("paste");
 const btnParse = $("btnParse");
 const btnAnalyze = $("btnAnalyze");
@@ -162,11 +162,12 @@ btnAnalyze.addEventListener("click", async () => {
   };
 
   try {
-    const res = await fetch("http://localhost:8000/analyze", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
+const res = await fetch(`${API_BASE}/analyze`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(payload)
+});
+;
 
     if (!res.ok) {
       const txt = await res.text();
