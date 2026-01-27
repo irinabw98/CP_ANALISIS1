@@ -14,7 +14,6 @@ from statsmodels.stats.multicomp import pairwise_tukeyhsd
 
 app = FastAPI(title="ANOVA + Tukey (grouped) API")
 
-# Permitir llamadas desde tu GitHub Pages
 ALLOWED_ORIGINS = [
     "https://irinabw98.github.io",
     "https://irinabw98.github.io/CP_ANALISIS1",
@@ -31,10 +30,6 @@ app.add_middleware(
 
 
 def _compact_letter_display(tukey_df: pd.DataFrame, treatments: List[str]) -> Dict[str, str]:
-    """
-    Construye letras tipo 'a', 'ab', 'b' desde resultados pareados (Tukey HSD).
-    Implementación greedy (MVP) que funciona bien en la mayoría de casos.
-    """
     tset = list(treatments)
     idx = {t: i for i, t in enumerate(tset)}
     n = len(tset)
@@ -106,51 +101,70 @@ def _compact_letter_display(tukey_df: pd.DataFrame, treatments: List[str]) -> Di
 
 def _to_numeric_series_strong(s: pd.Series) -> pd.Series:
     """
-    Convierte series con formatos típicos de Excel ES:
-      - "0,00" -> 0.00
-      - "1.234,56" -> 1234.56
-      - " 12 " -> 12
+    Conversión robusta para datos pegados desde Excel:
+    - "0,00" -> 0.0
+    - "1.234,56" -> 1234.56
+    - "1,234.56" -> 1234.56
+    - "12 %" -> 12.0
+    - strings raros -> NaN
     """
     s2 = s.astype(str).str.strip()
 
-    # borrar separadores de miles (.)
-    s2 = s2.str.replace(".", "", regex=False)
-    # convertir coma decimal a punto
-    s2 = s2.str.replace(",", ".", regex=False)
+    # quitar todo excepto dígitos, coma, punto y signo menos
+    s2 = s2.str.replace(r"[^0-9,\.\-]", "", regex=True)
 
-    return pd.to_numeric(s2, errors="coerce")
+    def _one(x: str):
+        x = str(x).strip()
+        if x in ("", "-", ".", ","):
+            return np.nan
+
+        # Si tiene coma y punto, el separador decimal es el que aparece ÚLTIMO
+        if "," in x and "." in x:
+            if x.rfind(",") > x.rfind("."):
+                # 1.234,56
+                x = x.replace(".", "").replace(",", ".")
+            else:
+                # 1,234.56
+                x = x.replace(",", "")
+        else:
+            # Solo coma -> decimal coma
+            if "," in x:
+                x = x.replace(".", "")
+                x = x.replace(",", ".")
+            # Solo punto -> decimal punto (ok)
+
+        try:
+            return float(x)
+        except Exception:
+            return np.nan
+
+    return s2.apply(_one)
 
 
 def _run_group_analysis(
     gdf: pd.DataFrame,
-    value_col: str,
+    value_col_num: str,
     trt_col: str,
     alpha: float,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """
-    Devuelve:
-      - summary: treatment, n, mean, sd, tukey_letters
-      - anova: df, F, pvalue, df_resid
-      - pairs: tabla pareada de tukey
-    """
     gdf = gdf.copy()
 
-    gdf = gdf[[value_col, trt_col]].dropna()
+    gdf = gdf[[value_col_num, trt_col]].dropna()
     if gdf.empty:
         raise ValueError("Grupo sin datos luego de limpiar NA.")
 
-    # Asegurar numérico (robusto a coma decimal)
-    gdf[value_col] = _to_numeric_series_strong(gdf[value_col])
-    gdf = gdf.dropna(subset=[value_col])
+    # asegurar numérico (ya debería venir numérico, pero doble seguro)
+    gdf[value_col_num] = pd.to_numeric(gdf[value_col_num], errors="coerce")
+    gdf = gdf.dropna(subset=[value_col_num])
     if gdf.empty:
-        raise ValueError(f"Grupo sin valores numéricos en {value_col}.")
+        raise ValueError(f"Grupo sin valores numéricos en {value_col_num}.")
 
     gdf[trt_col] = gdf[trt_col].astype(str)
     uniq_trt = sorted(gdf[trt_col].unique().tolist())
     if len(uniq_trt) < 2:
         raise ValueError("Grupo con menos de 2 tratamientos (no se puede ANOVA/Tukey).")
 
-    model = ols(f"Q('{value_col}') ~ C(Q('{trt_col}'))", data=gdf).fit()
+    model = ols(f"Q('{value_col_num}') ~ C(Q('{trt_col}'))", data=gdf).fit()
     an = anova_lm(model, typ=2)
 
     factor_row = an.iloc[0]
@@ -161,7 +175,7 @@ def _run_group_analysis(
         "df_resid": float(an.iloc[1].get("df", np.nan)),
     }])
 
-    tuk = pairwise_tukeyhsd(endog=gdf[value_col].values, groups=gdf[trt_col].values, alpha=alpha)
+    tuk = pairwise_tukeyhsd(endog=gdf[value_col_num].values, groups=gdf[trt_col].values, alpha=alpha)
     tuk_df = pd.DataFrame(tuk._results_table.data[1:], columns=tuk._results_table.data[0])
     tuk_df["reject"] = tuk_df["reject"].astype(bool)
     for c in ["meandiff", "p-adj", "lower", "upper"]:
@@ -170,7 +184,7 @@ def _run_group_analysis(
     letters = _compact_letter_display(tuk_df, uniq_trt)
 
     summary = (
-        gdf.groupby(trt_col, dropna=False)[value_col]
+        gdf.groupby(trt_col, dropna=False)[value_col_num]
         .agg(n="count", mean="mean", sd="std")
         .reset_index()
         .rename(columns={trt_col: "treatment"})
@@ -217,9 +231,11 @@ def analyze(payload: Dict[str, Any] = Body(...)) -> StreamingResponse:
     # Normalizaciones
     df[treatment_col] = df[treatment_col].astype(str)
 
-    # Forzar numérico en columna de valores (robusto a coma decimal)
-    df[value_col] = _to_numeric_series_strong(df[value_col])
-    df = df.dropna(subset=[value_col])
+    # ✅ Columna numérica explícita (queda en el Excel)
+    df["assessment_value_num"] = _to_numeric_series_strong(df[value_col])
+
+    # ✅ borrar filas sin número
+    df = df.dropna(subset=["assessment_value_num"])
 
     # Columnas extra
     df["analysis_name"] = analysis_name
@@ -232,6 +248,8 @@ def analyze(payload: Dict[str, Any] = Body(...)) -> StreamingResponse:
     anovas = []
     pairs = []
 
+    value_col_num = "assessment_value_num"
+
     if group_cols:
         grouped = df.groupby(group_cols, dropna=False, sort=False)
         for keys, gdf in grouped:
@@ -243,7 +261,7 @@ def analyze(payload: Dict[str, Any] = Body(...)) -> StreamingResponse:
                 key_dict[group_cols[0]] = keys
 
             try:
-                s, a, p = _run_group_analysis(gdf, value_col, treatment_col, alpha)
+                s, a, p = _run_group_analysis(gdf, value_col_num, treatment_col, alpha)
 
                 for col, val in key_dict.items():
                     s[col] = val
@@ -259,7 +277,7 @@ def analyze(payload: Dict[str, Any] = Body(...)) -> StreamingResponse:
                     err[col] = val
                 anovas.append(pd.DataFrame([err]))
     else:
-        s, a, p = _run_group_analysis(df, value_col, treatment_col, alpha)
+        s, a, p = _run_group_analysis(df, value_col_num, treatment_col, alpha)
         summaries.append(s)
         anovas.append(a)
         pairs.append(p)
@@ -284,11 +302,10 @@ def analyze(payload: Dict[str, Any] = Body(...)) -> StreamingResponse:
             for c in anova_cols:
                 final_df[c] = anova_df.iloc[0][c] if len(anova_df) else np.nan
 
-    # Reordenar: group_key primero (columna A), luego originales, luego agregadas
-    original_cols = list(pd.DataFrame(rows).columns)
-    front = ["group_key"] + [c for c in original_cols if c in final_df.columns and c != "group_key"]
-    added = [c for c in final_df.columns if c not in front]
-    final_df = final_df[front + added]
+    # ✅ Forzar group_key a columna A (posición 0, garantizado)
+    if "group_key" in final_df.columns:
+        gk = final_df.pop("group_key")
+        final_df.insert(0, "group_key", gk)
 
     # Export Excel
     output = io.BytesIO()
@@ -317,3 +334,4 @@ def analyze(payload: Dict[str, Any] = Body(...)) -> StreamingResponse:
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
