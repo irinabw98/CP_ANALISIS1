@@ -292,11 +292,14 @@ def analyze(payload: Dict[str, Any] = Body(...)) -> StreamingResponse:
             for c in anova_cols:
                 final_df[c] = anova_df.iloc[0][c] if len(anova_df) else np.nan
 
-    # reordenar: originales primero
-    original_cols = list(pd.DataFrame(rows).columns)
-    front = [c for c in original_cols if c in final_df.columns]
-    added = [c for c in final_df.columns if c not in front]
-    final_df = final_df[front + added]
+# reordenar: group_key primero, después las originales, después las agregadas
+original_cols = list(pd.DataFrame(rows).columns)
+
+front = ["group_key"] + [c for c in original_cols if c in final_df.columns and c != "group_key"]
+added = [c for c in final_df.columns if c not in front]
+
+final_df = final_df[front + added]
+
 
     # export excel
     output = io.BytesIO()
@@ -324,3 +327,4 @@ def analyze(payload: Dict[str, Any] = Body(...)) -> StreamingResponse:
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
