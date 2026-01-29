@@ -30,6 +30,10 @@ app.add_middleware(
 
 
 def _compact_letter_display(tukey_df: pd.DataFrame, treatments: List[str]) -> Dict[str, str]:
+    """
+    Construye letras tipo 'a', 'ab', 'b' desde resultados pareados (Tukey HSD).
+    Implementación greedy (MVP) que funciona bien en la mayoría de casos.
+    """
     tset = list(treatments)
     idx = {t: i for i, t in enumerate(tset)}
     n = len(tset)
@@ -140,6 +144,47 @@ def _to_numeric_series_strong(s: pd.Series) -> pd.Series:
     return s2.apply(_one)
 
 
+def _tukey_reject_between(tukey_df: pd.DataFrame, a: str, b: str) -> bool:
+    """
+    Devuelve True si Tukey rechaza (diferencia significativa) entre a y b.
+    Si no encuentra el par, asume NO rechazo (conservador).
+    """
+    row = tukey_df[
+        ((tukey_df["group1"] == a) & (tukey_df["group2"] == b)) |
+        ((tukey_df["group1"] == b) & (tukey_df["group2"] == a))
+    ]
+    if row.empty:
+        return False
+    return bool(row.iloc[0]["reject"])
+
+
+def _make_tukey_class(summary_df: pd.DataFrame, tukey_df: pd.DataFrame) -> pd.Series:
+    """
+    Clasificación forzada (una sola letra por tratamiento).
+    Regla: ordenar por mean desc. Empieza en A.
+    Si el tratamiento i difiere significativamente del i-1 => nueva letra.
+    """
+    df = summary_df.sort_values("mean", ascending=False).reset_index(drop=True)
+
+    if df.empty:
+        return pd.Series(dtype=str)
+
+    current = "A"
+    classes = [current]
+
+    for i in range(1, len(df)):
+        t_prev = str(df.loc[i - 1, "treatment"])
+        t_curr = str(df.loc[i, "treatment"])
+
+        if _tukey_reject_between(tukey_df, t_prev, t_curr):
+            current = chr(ord(current) + 1)  # B, C, D...
+
+        classes.append(current)
+
+    df["tukey_class"] = classes
+    return df.set_index("treatment")["tukey_class"]
+
+
 def _run_group_analysis(
     gdf: pd.DataFrame,
     value_col_num: str,
@@ -163,6 +208,7 @@ def _run_group_analysis(
     if len(uniq_trt) < 2:
         raise ValueError("Grupo con menos de 2 tratamientos (no se puede ANOVA/Tukey).")
 
+    # ANOVA (OLS)
     model = ols(f"Q('{value_col_num}') ~ C(Q('{trt_col}'))", data=gdf).fit()
     an = anova_lm(model, typ=2)
 
@@ -174,12 +220,15 @@ def _run_group_analysis(
         "df_resid": float(an.iloc[1].get("df", np.nan)),
     }])
 
+    # Tukey
     tuk = pairwise_tukeyhsd(endog=gdf[value_col_num].values, groups=gdf[trt_col].values, alpha=alpha)
     tuk_df = pd.DataFrame(tuk._results_table.data[1:], columns=tuk._results_table.data[0])
     tuk_df["reject"] = tuk_df["reject"].astype(bool)
     for c in ["meandiff", "p-adj", "lower", "upper"]:
-        tuk_df[c] = pd.to_numeric(tuk_df[c], errors="coerce")
+        if c in tuk_df.columns:
+            tuk_df[c] = pd.to_numeric(tuk_df[c], errors="coerce")
 
+    # Letters (real Tukey display)
     letters = _compact_letter_display(tuk_df, uniq_trt)
 
     summary = (
@@ -188,7 +237,15 @@ def _run_group_analysis(
         .reset_index()
         .rename(columns={trt_col: "treatment"})
     )
-    summary["tukey_letters"] = summary["treatment"].astype(str).map(letters)
+
+    # ✅ Tukey letters en MAYÚSCULA
+    summary["tukey_letters"] = (
+        summary["treatment"].astype(str).map(letters).fillna("a").str.upper()
+    )
+
+    # ✅ Tukey class (una sola letra) en MAYÚSCULA
+    tukey_class_map = _make_tukey_class(summary[["treatment", "mean"]].copy(), tuk_df)
+    summary["tukey_class"] = summary["treatment"].astype(str).map(tukey_class_map).fillna("A").str.upper()
 
     return summary, anova_out, tuk_df
 
@@ -234,8 +291,10 @@ def analyze(payload: Dict[str, Any] = Body(...)) -> StreamingResponse:
     df["assessment_value_num"] = _to_numeric_series_strong(df[value_col])
     df["assessment_value_x1"] = df["assessment_value_num"] * 1.0  # fuerza float para Excel
 
-    # ✅ borrar filas sin número (y por ende sin análisis)
+    # ✅ borrar filas sin número
     df = df.dropna(subset=["assessment_value_num"])
+    if df.empty:
+        raise HTTPException(status_code=400, detail=f"No quedaron filas con valores numéricos en '{value_col}'.")
 
     # Columnas extra
     df["analysis_name"] = analysis_name
@@ -302,23 +361,17 @@ def analyze(payload: Dict[str, Any] = Body(...)) -> StreamingResponse:
             for c in anova_cols:
                 final_df[c] = anova_df.iloc[0][c] if len(anova_df) else np.nan
 
-    # ✅ Orden FINAL de columnas (blindado)
-    # Queremos A) group_key, B) originales, C) columnas calculadas
-    original_cols = list(pd.DataFrame(rows).columns)
-
-    # asegurarnos que group_key quede primero sí o sí
+    # ✅ Forzar group_key a columna A (garantizado)
     if "group_key" in final_df.columns:
-        gk = final_df["group_key"]
-        final_df = final_df.drop(columns=["group_key"])
+        gk = final_df.pop("group_key")
         final_df.insert(0, "group_key", gk)
 
-    # opcional: hacer que estas queden “adelante” también
+    # opcional: columnas “adelante” también
     preferred_front = ["analysis_name", "assessment_value_num", "assessment_value_x1"]
     for col in reversed(preferred_front):
         if col in final_df.columns:
-            s_col = final_df[col]
-            final_df = final_df.drop(columns=[col])
-            final_df.insert(1, col, s_col)  # quedan pegaditas después de group_key
+            s_col = final_df.pop(col)
+            final_df.insert(1, col, s_col)
 
     # Export Excel
     output = io.BytesIO()
@@ -352,4 +405,4 @@ def health():
 # ✅ Para chequear si Render está corriendo ESTA versión del código
 @app.get("/version")
 def version():
-    return {"version": "2026-01-27-keyfirst-num-x1-v1"}
+    return {"version": "2026-01-29-tukeyclass-uppercase-keyfirst-numx1-v1"}
