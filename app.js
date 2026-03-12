@@ -107,7 +107,6 @@ function renderGroupChips(cols, exclude = []) {
   });
 }
 
-// ✅ LIMPIAR: va afuera, se registra una sola vez
 btnClear.addEventListener("click", () => {
   paste.value = "";
   currentRows = [];
@@ -148,6 +147,7 @@ btnParse.addEventListener("click", () => {
   } catch (e) {
     status.textContent = "Error al parsear la tabla. Probá pegar desde Excel (TSV) o CSV.";
     btnAnalyze.disabled = true;
+    console.error(e);
   }
 });
 
@@ -164,15 +164,16 @@ btnAnalyze.addEventListener("click", async () => {
 
   const analysisName = prompt(
     "Nombre del análisis (se usará en el Excel y el nombre del archivo):",
-    "ANOVA_Tukey"
+    "ANOVA_Tukey_LSD"
   );
+
   if (!analysisName || !analysisName.trim()) {
     status.textContent = "Cancelado: se requiere un nombre de análisis.";
     return;
   }
 
   btnAnalyze.disabled = true;
-  status.textContent = "Ejecutando análisis en backend online...";
+  status.textContent = "Ejecutando ANOVA + Tukey + LSD Fisher en backend online...";
 
   const payload = {
     rows: currentRows,
@@ -201,13 +202,13 @@ btnAnalyze.addEventListener("click", async () => {
     const safe = analysisName.trim().replace(/[^\w \-]/g, "_").trim() || "analysis";
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${safe}_anova_tukey.xlsx`;
+    a.download = `${safe}_anova_tukey_lsd.xlsx`;
     document.body.appendChild(a);
     a.click();
     a.remove();
 
     URL.revokeObjectURL(url);
-    status.textContent = "Listo. Se descargó el Excel con tu tabla + columnas de resultado.";
+    status.textContent = "Listo. Se descargó el Excel con ANOVA + Tukey + LSD Fisher.";
   } catch (e) {
     status.textContent =
       "Error: el backend online no respondió. Probá abrir /health en Render y revisá CORS/logs.";
