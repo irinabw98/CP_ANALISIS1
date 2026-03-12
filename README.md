@@ -1,86 +1,72 @@
-# 🌙 CP_ANALISIS1 — ANOVA + Tukey (por grupos)
+<div align="center">
 
-Una app web para convertir una tabla pegada desde Excel en un análisis estadístico **listo para descargar**.
+# 💜 CP_ANALISIS1
+### ANOVA + Tukey + LSD Fisher (por grupos)
 
-👉 Pegás datos → elegís cómo agrupar → corrés **ANOVA + Tukey (α = 0.05)** → descargás un Excel con tu misma tabla + columnas de resultado.
+![Python](https://img.shields.io/badge/Python-3.11-7F3FBF?style=for-the-badge&logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-Backend-8A2BE2?style=for-the-badge&logo=fastapi&logoColor=white)
+![Statsmodels](https://img.shields.io/badge/Statsmodels-ANOVA%20%2B%20PostHoc-6A0DAD?style=for-the-badge)
+![Render](https://img.shields.io/badge/Render-Online-A855F7?style=for-the-badge)
+![Excel](https://img.shields.io/badge/Export-Excel-C084FC?style=for-the-badge)
 
----
+Aplicación web para pegar tablas desde Excel, correr **ANOVA por grupos** y devolver un archivo Excel con resultados de:
 
-## ✨ ¿Qué vas a poder hacer acá?
+**ANOVA + Tukey HSD + Fisher LSD**
 
-- **Pegar tu tabla directamente** (TSV desde Excel o CSV).
-- Elegir:
-  - **Columna de valores** (por defecto `assessment_value`)
-  - **Columna de tratamientos** (`treatment`)
-  - **Columnas para agrupar** (las que “parten” el análisis: protocolo, trial, momento, se_name, etc.)
-- Ejecutar el análisis por cada grupo definido.
-- Descargar un Excel con:
-  - Tu tabla original
-  - `group_key` (identificador del grupo)
-  - `analysis_name` (nombre del análisis)
-  - `assessment_value_num` (la versión numérica real del valor, robusta a coma decimal)
-  - Estadísticos por tratamiento: `n`, `mean`, `sd`
-  - Letras de Tukey: `tukey_letters`
-  - ANOVA por grupo: `F`, `pvalue`, `df`, `df_resid`
-  - Hojas extra con detalle: `anova_detail` y `tukey_pairs_detail`
+</div>
 
 ---
 
-## 🧠 Cómo pensar el flujo (mentalidad de experimento)
+## 💡 ¿Qué hace esta app?
 
-Tu tabla tiene muchas columnas, pero el análisis necesita 3 conceptos:
+Esta herramienta permite:
 
-1. **Valor**: lo que mediste → `assessment_value`
-2. **Tratamiento**: lo que comparás → `treatment`
-3. **Grupo**: el contexto del experimento → columnas que segmentan el análisis  
-   (por ejemplo: `trial + se_name + timing + part_rated_code`)
-
-Cada combinación de “grupo” genera un ANOVA independiente.
-
----
-
-## ✅ Requisitos de la tabla
-
-La tabla debe incluir al menos:
-
-- `assessment_value`
-- `treatment`
-
-Y puede incluir cualquier cantidad de columnas extra (no hay límite práctico).
-
-📌 Tip: pegá la tabla desde Excel (copiar y pegar) para que se detecte como TSV automáticamente.
+- pegar una tabla copiada desde Excel o CSV
+- elegir la columna de valores numéricos
+- elegir la columna de tratamientos
+- definir columnas de agrupamiento
+- correr un **ANOVA independiente por cada grupo**
+- calcular **dos post hoc en paralelo**:
+  - **Tukey HSD**
+  - **LSD Fisher**
+- descargar un Excel con:
+  - la tabla original enriquecida
+  - resumen por tratamiento
+  - detalle de ANOVA
+  - detalle de comparaciones Tukey
+  - detalle de comparaciones LSD Fisher
 
 ---
 
-## 🖥️ Tecnologías
+## 🧪 Flujo de análisis
 
-**Frontend**
-- HTML + CSS + JavaScript (GitHub Pages)
+La lógica general es:
 
-**Backend**
-- Python + FastAPI
-- Pandas / NumPy
-- Statsmodels (ANOVA + Tukey)
-- Export a Excel con OpenPyXL
-
-**Deploy**
-- Frontend: GitHub Pages
-- Backend: Render
-
----
-
-## 🌐 Uso online
-
-- Frontend: GitHub Pages del repo
-- Backend: Render (endpoint `/analyze`)
+1. Pegás la tabla
+2. Elegís:
+   - `value_col`
+   - `treatment_col`
+   - `group_cols`
+   - `alpha`
+3. El backend:
+   - convierte la variable a numérica
+   - arma los grupos
+   - corre **ANOVA**
+   - corre **Tukey**
+   - corre **LSD Fisher protegido por ANOVA**
+4. Se descarga un Excel con todos los resultados
 
 ---
 
-## 🧪 Estado del proyecto
+## 📦 Estructura del proyecto
 
-MVP funcional ✅  
-Próximos upgrades:
-- Estética mejorada (violeta/lila)
-- Validaciones y mensajes más “humanos”
-- Gráficos
-- Historial / trazabilidad de análisis
+```bash
+CP_ANALISIS1/
+│
+├── app.py             # Backend FastAPI
+├── app.js             # Lógica frontend
+├── index.html         # Interfaz principal
+├── styles.css         # Estilos
+├── requirements.txt   # Dependencias Python
+├── runtime.txt        # Versión de Python en Render
+└── README.md
