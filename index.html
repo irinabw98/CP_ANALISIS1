@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>CP_ANALISIS1 · ANOVA + Tukey (por grupos)</title>
+  <title>CP_ANALISIS1 · ANOVA + Tukey + LSD Fisher (por grupos)</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 
@@ -13,7 +13,7 @@
       <div class="brand">
         <div class="badge">CP</div>
         <div>
-          <h1>ANOVA + Tukey (por grupos)</h1>
+          <h1>ANOVA + Tukey + LSD Fisher (por grupos)</h1>
           <p class="subtitle">
             Pegá tu tabla, definí cómo se segmenta el experimento y descargá un Excel con tu misma data + resultados.
           </p>
@@ -23,7 +23,7 @@
       <div class="hero">
         <p>
           Esto está pensado para análisis rápidos de ensayos: vos definís el <b>valor</b>, el <b>tratamiento</b> y las columnas que
-          forman cada <b>grupo</b>. El backend corre el análisis y te devuelve el archivo listo.
+          forman cada <b>grupo</b>. El backend corre el ANOVA y ambos post hoc, y te devuelve el archivo listo.
         </p>
       </div>
     </header>
@@ -58,7 +58,7 @@
         </div>
 
         <div>
-          <label>Alpha (Tukey)</label>
+          <label>Alpha (ANOVA / Tukey / LSD)</label>
           <input id="alpha" type="number" step="0.001" min="0.001" max="0.2" value="0.05" />
           <p class="mini">Por defecto: 0.05</p>
         </div>
@@ -80,7 +80,7 @@
 
       <p class="hint">
         El Excel descargado incluye tu tabla + <code>group_key</code>, <code>analysis_name</code>, <code>assessment_value_num</code>,
-        resumen por tratamiento y resultados del ANOVA/Tukey.
+        resumen por tratamiento y resultados del ANOVA, Tukey y LSD Fisher.
       </p>
     </section>
 
