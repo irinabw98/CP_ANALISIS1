@@ -34,8 +34,7 @@ app.add_middleware(
 def _compact_letter_display(pairs_df: pd.DataFrame, treatments: List[str]) -> Dict[str, str]:
     """
     Construye letras tipo 'a', 'ab', 'b' desde resultados pareados
-    que tengan columnas: group1, group2, reject.
-    Funciona tanto para Tukey como para LSD.
+    con columnas: group1, group2, reject.
     """
     tset = list(treatments)
     idx = {t: i for i, t in enumerate(tset)}
@@ -106,6 +105,57 @@ def _compact_letter_display(pairs_df: pd.DataFrame, treatments: List[str]) -> Di
     return out
 
 
+def _relabel_letters_by_mean(
+    summary_df: pd.DataFrame,
+    letters_map: Dict[str, str],
+) -> Dict[str, str]:
+    """
+    Re-etiqueta las letras compactas para que el tratamiento con mayor media
+    arranque siempre en A, el siguiente bloque nuevo en B, etc.
+    """
+    if summary_df.empty or not letters_map:
+        return letters_map
+
+    df = summary_df[["treatment", "mean"]].copy()
+    df["treatment"] = df["treatment"].astype(str)
+    df = df.sort_values("mean", ascending=False).reset_index(drop=True)
+
+    seen = []
+    for _, row in df.iterrows():
+        trt = row["treatment"]
+        raw_letters = str(letters_map.get(trt, "")).strip().lower()
+        for ch in raw_letters:
+            if ch not in seen:
+                seen.append(ch)
+
+    if not seen:
+        return {k: "A" for k in letters_map.keys()}
+
+    new_symbols = [chr(c) for c in range(ord("A"), ord("Z") + 1)]
+    remap = {}
+
+    for i, old_sym in enumerate(seen):
+        if i < 26:
+            remap[old_sym] = new_symbols[i]
+        else:
+            prefix = new_symbols[(i // 26) - 1]
+            suffix = new_symbols[i % 26]
+            remap[old_sym] = prefix + suffix
+
+    out = {}
+    for trt, raw_letters in letters_map.items():
+        raw_letters = str(raw_letters).strip().lower()
+
+        rebuilt = []
+        for ch in raw_letters:
+            if ch in remap and remap[ch] not in rebuilt:
+                rebuilt.append(remap[ch])
+
+        out[str(trt)] = "".join(rebuilt) if rebuilt else "A"
+
+    return out
+
+
 def _to_numeric_series_strong(s: pd.Series) -> pd.Series:
     """
     Conversión robusta para datos pegados desde Excel:
@@ -113,11 +163,8 @@ def _to_numeric_series_strong(s: pd.Series) -> pd.Series:
     - "1.234,56" -> 1234.56
     - "1,234.56" -> 1234.56
     - "12 %" -> 12.0
-    - strings raros -> NaN
     """
     s2 = s.astype(str).str.strip()
-
-    # dejar solo dígitos, coma, punto y signo menos
     s2 = s2.str.replace(r"[^0-9,\.\-]", "", regex=True)
 
     def _one(x: str):
@@ -125,16 +172,12 @@ def _to_numeric_series_strong(s: pd.Series) -> pd.Series:
         if x in ("", "-", ".", ","):
             return np.nan
 
-        # Si tiene coma y punto, el separador decimal es el que aparece ÚLTIMO
         if "," in x and "." in x:
             if x.rfind(",") > x.rfind("."):
-                # 1.234,56
                 x = x.replace(".", "").replace(",", ".")
             else:
-                # 1,234.56
                 x = x.replace(",", "")
         else:
-            # Solo coma -> decimal coma
             if "," in x:
                 x = x.replace(".", "")
                 x = x.replace(",", ".")
@@ -148,10 +191,6 @@ def _to_numeric_series_strong(s: pd.Series) -> pd.Series:
 
 
 def _reject_between(pairs_df: pd.DataFrame, a: str, b: str) -> bool:
-    """
-    Devuelve True si el test rechaza entre a y b.
-    Si no encuentra el par, asume NO rechazo.
-    """
     row = pairs_df[
         ((pairs_df["group1"] == a) & (pairs_df["group2"] == b)) |
         ((pairs_df["group1"] == b) & (pairs_df["group2"] == a))
@@ -164,8 +203,8 @@ def _reject_between(pairs_df: pd.DataFrame, a: str, b: str) -> bool:
 def _make_class_from_pairs(summary_df: pd.DataFrame, pairs_df: pd.DataFrame, class_col_name: str) -> pd.Series:
     """
     Clasificación forzada (una sola letra por tratamiento).
-    Regla: ordenar por mean desc. Empieza en A.
-    Si el tratamiento i difiere significativamente del i-1 => nueva letra.
+    Ordena por media descendente y asigna:
+    A al mayor promedio, luego B, C, etc. si hay rechazo vs el anterior.
     """
     df = summary_df.sort_values("mean", ascending=False).reset_index(drop=True)
 
@@ -193,11 +232,11 @@ def _run_tukey(
     value_col_num: str,
     trt_col: str,
     alpha: float,
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
+) -> pd.DataFrame:
     tuk = pairwise_tukeyhsd(
         endog=gdf[value_col_num].values,
         groups=gdf[trt_col].values,
-        alpha=alpha
+        alpha=alpha,
     )
     tuk_df = pd.DataFrame(tuk._results_table.data[1:], columns=tuk._results_table.data[0])
     tuk_df["reject"] = tuk_df["reject"].astype(bool)
@@ -208,11 +247,9 @@ def _run_tukey(
 
     tuk_df["method"] = "tukey"
     tuk_df["pvalue"] = pd.to_numeric(tuk_df.get("p-adj", np.nan), errors="coerce")
-
-    # Homogeneizamos nombres para poder reutilizar funciones
     tuk_df = tuk_df.rename(columns={"p-adj": "p_adj"})
 
-    return tuk_df, tuk_df.copy()
+    return tuk_df
 
 
 def _run_lsd_fisher(
@@ -222,10 +259,10 @@ def _run_lsd_fisher(
     alpha: float,
     model,
     anova_pvalue: float,
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
+) -> pd.DataFrame:
     """
-    Fisher LSD protegido por ANOVA:
-    si ANOVA no es significativo, las comparaciones quedan como no significativas.
+    Fisher LSD protegido por ANOVA.
+    Si ANOVA no es significativo, no marca diferencias.
     """
     means = (
         gdf.groupby(trt_col, dropna=False)[value_col_num]
@@ -268,7 +305,6 @@ def _run_lsd_fisher(
             upper = diff + lsd_value
             reject = bool(abs(diff) > lsd_value)
 
-        # Protected LSD
         if np.isnan(anova_pvalue) or anova_pvalue >= alpha:
             reject = False
 
@@ -295,7 +331,7 @@ def _run_lsd_fisher(
             "pvalue", "lower", "upper", "lsd_value", "reject", "method"
         ])
 
-    return lsd_df, lsd_df.copy()
+    return lsd_df
 
 
 def _run_group_analysis(
@@ -303,7 +339,7 @@ def _run_group_analysis(
     value_col_num: str,
     trt_col: str,
     alpha: float,
-) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     gdf = gdf.copy()
 
     gdf = gdf[[value_col_num, trt_col]].dropna()
@@ -320,7 +356,6 @@ def _run_group_analysis(
     if len(uniq_trt) < 2:
         raise ValueError("Grupo con menos de 2 tratamientos (no se puede ANOVA/post hoc).")
 
-    # ANOVA
     model = ols(f"Q('{value_col_num}') ~ C(Q('{trt_col}'))", data=gdf).fit()
     an = anova_lm(model, typ=2)
 
@@ -342,22 +377,25 @@ def _run_group_analysis(
     )
 
     # Tukey
-    tukey_pairs_df, tukey_detail_df = _run_tukey(gdf, value_col_num, trt_col, alpha)
+    tukey_pairs_df = _run_tukey(gdf, value_col_num, trt_col, alpha)
     tukey_letters = _compact_letter_display(tukey_pairs_df, uniq_trt)
+    tukey_letters = _relabel_letters_by_mean(summary[["treatment", "mean"]].copy(), tukey_letters)
+
     summary["tukey_letters"] = (
-        summary["treatment"].astype(str).map(tukey_letters).fillna("a").str.upper()
+        summary["treatment"].astype(str).map(tukey_letters).fillna("A").str.upper()
     )
+
     tukey_class_map = _make_class_from_pairs(
         summary[["treatment", "mean"]].copy(),
         tukey_pairs_df,
-        "tukey_class"
+        "tukey_class",
     )
     summary["tukey_class"] = (
         summary["treatment"].astype(str).map(tukey_class_map).fillna("A").str.upper()
     )
 
     # LSD Fisher
-    lsd_pairs_df, lsd_detail_df = _run_lsd_fisher(
+    lsd_pairs_df = _run_lsd_fisher(
         gdf=gdf,
         value_col_num=value_col_num,
         trt_col=trt_col,
@@ -365,23 +403,30 @@ def _run_group_analysis(
         model=model,
         anova_pvalue=p_anova,
     )
+
     lsd_letters = _compact_letter_display(lsd_pairs_df, uniq_trt) if not lsd_pairs_df.empty else {t: "a" for t in uniq_trt}
+    lsd_letters = _relabel_letters_by_mean(summary[["treatment", "mean"]].copy(), lsd_letters)
+
     summary["lsd_letters"] = (
-        summary["treatment"].astype(str).map(lsd_letters).fillna("a").str.upper()
+        summary["treatment"].astype(str).map(lsd_letters).fillna("A").str.upper()
     )
-    lsd_class_map = _make_class_from_pairs(
-        summary[["treatment", "mean"]].copy(),
-        lsd_pairs_df,
-        "lsd_class"
-    ) if not lsd_pairs_df.empty else pd.Series({t: "A" for t in uniq_trt})
+
+    lsd_class_map = (
+        _make_class_from_pairs(
+            summary[["treatment", "mean"]].copy(),
+            lsd_pairs_df,
+            "lsd_class",
+        )
+        if not lsd_pairs_df.empty
+        else pd.Series({t: "A" for t in uniq_trt})
+    )
     summary["lsd_class"] = (
         summary["treatment"].astype(str).map(lsd_class_map).fillna("A").str.upper()
     )
 
-    # detalle combinado
-    pairs_df = pd.concat([tukey_detail_df, lsd_detail_df], ignore_index=True, sort=False)
+    pairs_df = pd.concat([tukey_pairs_df, lsd_pairs_df], ignore_index=True, sort=False)
 
-    return summary, anova_out, pairs_df, gdf
+    return summary, anova_out, pairs_df
 
 
 def _make_group_key(row: pd.Series, group_cols: List[str]) -> str:
@@ -450,7 +495,7 @@ def analyze(payload: Dict[str, Any] = Body(...)) -> StreamingResponse:
                 key_dict[group_cols[0]] = keys
 
             try:
-                s, a, p, _ = _run_group_analysis(gdf, value_col_num, treatment_col, alpha)
+                s, a, p = _run_group_analysis(gdf, value_col_num, treatment_col, alpha)
 
                 for col, val in key_dict.items():
                     s[col] = val
@@ -466,7 +511,7 @@ def analyze(payload: Dict[str, Any] = Body(...)) -> StreamingResponse:
                     err[col] = val
                 anovas.append(pd.DataFrame([err]))
     else:
-        s, a, p, _ = _run_group_analysis(df, value_col_num, treatment_col, alpha)
+        s, a, p = _run_group_analysis(df, value_col_num, treatment_col, alpha)
         summaries.append(s)
         anovas.append(a)
         pairs.append(p)
@@ -477,7 +522,7 @@ def analyze(payload: Dict[str, Any] = Body(...)) -> StreamingResponse:
 
     base_df = df.copy().rename(columns={treatment_col: "treatment"})
     if not summary_df.empty:
-        merge_keys = ["treatment"] + group_cols if group_cols else ["treatment"]
+        merge_keys = (group_cols if group_cols else []) + ["treatment"]
         final_df = base_df.merge(summary_df, on=merge_keys, how="left")
     else:
         final_df = base_df
@@ -537,4 +582,4 @@ def health():
 
 @app.get("/version")
 def version():
-    return {"version": "2026-03-11-anova-tukey-lsd-both-v1"}
+    return {"version": "2026-03-12-anova-tukey-lsd-orderedA-v1"}
