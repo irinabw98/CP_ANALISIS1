@@ -35,7 +35,7 @@
       <textarea id="paste" placeholder="Pegá acá tu tabla..."></textarea>
 
       <div class="row">
-        <button id="btnParse">Cargar / Previsualizar</button>
+        <button id="btnParse" type="button">Cargar / Previsualizar</button>
         <button id="btnClear" class="ghost" type="button">Limpiar</button>
         <span id="status" class="status"></span>
       </div>
@@ -46,19 +46,19 @@
 
       <div class="grid">
         <div>
-          <label>Columna de valores</label>
+          <label for="valueCol">Columna de valores</label>
           <select id="valueCol"></select>
           <p class="mini">Ej: <code>assessment_value</code></p>
         </div>
 
         <div>
-          <label>Columna de tratamientos</label>
+          <label for="treatmentCol">Columna de tratamientos</label>
           <select id="treatmentCol"></select>
           <p class="mini">Ej: <code>treatment</code></p>
         </div>
 
         <div>
-          <label>Alpha (ANOVA / Tukey / LSD)</label>
+          <label for="alpha">Alpha (ANOVA / Tukey / LSD)</label>
           <input id="alpha" type="number" step="0.001" min="0.001" max="0.2" value="0.05" />
           <p class="mini">Por defecto: 0.05</p>
         </div>
@@ -74,8 +74,17 @@
       </div>
 
       <div class="row">
-        <button id="btnAnalyze" class="primary" disabled>Ejecutar y descargar Excel</button>
+        <button id="btnAnalyze" class="primary" type="button" disabled>
+          Ejecutar y descargar Excel
+        </button>
         <span class="pill">Online · Render</span>
+      </div>
+
+      <div id="progressWrap" class="progressWrap">
+        <div class="progress">
+          <div id="progressBar"></div>
+        </div>
+        <div id="progressText" class="progressText"></div>
       </div>
 
       <p class="hint">
