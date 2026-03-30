@@ -13,10 +13,35 @@ const valueColSel = $("valueCol");
 const treatmentColSel = $("treatmentCol");
 const groupColsBox = $("groupCols");
 const alphaInput = $("alpha");
+const progressWrap = $("progressWrap");
+const progressBar = $("progressBar");
+const progressText = $("progressText");
 
 let currentRows = [];
 let currentCols = [];
 let selectedGroupCols = new Set();
+
+function resetProgress() {
+  progressBar.style.width = "0%";
+  progressText.textContent = "";
+  progressWrap.style.display = "none";
+}
+
+function showProgress() {
+  progressWrap.style.display = "block";
+}
+
+function updateProgress(progress, current, total) {
+  const safeProgress = Number.isFinite(progress) ? progress : 0;
+  const safeCurrent = Number.isFinite(current) ? current : 0;
+  const safeTotal = Number.isFinite(total) ? total : 0;
+
+  progressBar.style.width = `${safeProgress}%`;
+  progressText.textContent =
+    safeTotal > 0
+      ? `Procesando ${safeCurrent}/${safeTotal} grupos (${safeProgress}%)`
+      : `Preparando análisis... (${safeProgress}%)`;
+}
 
 function parseTable(text) {
   const raw = text.trim();
@@ -24,11 +49,18 @@ function parseTable(text) {
 
   const firstLine = raw.split(/\r?\n/)[0];
   let delim = "\t";
+
   if (!firstLine.includes("\t")) {
-    delim = firstLine.includes(",") ? "," : (firstLine.includes(";") ? ";" : "\t");
+    delim = firstLine.includes(",")
+      ? ","
+      : firstLine.includes(";")
+      ? ";"
+      : "\t";
   }
 
   const lines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  if (!lines.length) return { cols: [], rows: [] };
+
   const header = lines[0].split(delim).map((h) => h.trim());
   const cols = header;
 
@@ -41,6 +73,7 @@ function parseTable(text) {
     });
     rows.push(obj);
   }
+
   return { cols, rows };
 }
 
@@ -50,36 +83,46 @@ function renderPreview(cols, rows, maxRows = 30) {
 
   const thead = document.createElement("thead");
   const trh = document.createElement("tr");
+
   cols.forEach((c) => {
     const th = document.createElement("th");
     th.textContent = c;
     trh.appendChild(th);
   });
+
   thead.appendChild(trh);
   preview.appendChild(thead);
 
   const tbody = document.createElement("tbody");
+
   rows.slice(0, maxRows).forEach((r) => {
     const tr = document.createElement("tr");
+
     cols.forEach((c) => {
       const td = document.createElement("td");
       td.textContent = r[c] ?? "";
       tr.appendChild(td);
     });
+
     tbody.appendChild(tr);
   });
+
   preview.appendChild(tbody);
 }
 
 function fillSelect(selectEl, cols, preferredName) {
   selectEl.innerHTML = "";
+
   cols.forEach((c) => {
     const opt = document.createElement("option");
     opt.value = c;
     opt.textContent = c;
     selectEl.appendChild(opt);
   });
-  if (cols.includes(preferredName)) selectEl.value = preferredName;
+
+  if (cols.includes(preferredName)) {
+    selectEl.value = preferredName;
+  }
 }
 
 function renderGroupChips(cols, exclude = []) {
@@ -120,6 +163,7 @@ btnClear.addEventListener("click", () => {
 
   btnAnalyze.disabled = true;
   status.textContent = "Tabla limpiada.";
+  resetProgress();
 });
 
 btnParse.addEventListener("click", () => {
@@ -129,9 +173,11 @@ btnParse.addEventListener("click", () => {
     currentRows = rows;
 
     if (!cols.length || !rows.length) {
-      status.textContent = "No se detectaron datos (revisá que haya encabezados y filas).";
+      status.textContent =
+        "No se detectaron datos. Revisá que haya encabezados y filas.";
       btnAnalyze.disabled = true;
       renderPreview([], []);
+      resetProgress();
       return;
     }
 
@@ -144,10 +190,13 @@ btnParse.addEventListener("click", () => {
     renderPreview(cols, rows);
     status.textContent = `Tabla cargada: ${rows.length} filas, ${cols.length} columnas.`;
     btnAnalyze.disabled = false;
+    resetProgress();
   } catch (e) {
-    status.textContent = "Error al parsear la tabla. Probá pegar desde Excel (TSV) o CSV.";
+    status.textContent =
+      "Error al parsear la tabla. Probá pegar desde Excel (TSV) o CSV.";
     btnAnalyze.disabled = true;
     console.error(e);
+    resetProgress();
   }
 });
 
@@ -163,7 +212,7 @@ btnAnalyze.addEventListener("click", async () => {
   if (!currentRows.length) return;
 
   const analysisName = prompt(
-    "Nombre del análisis (se usará en el Excel y el nombre del archivo):",
+    "Nombre del análisis (se usará en el Excel y en el nombre del archivo):",
     "ANOVA_Tukey_LSD"
   );
 
@@ -173,7 +222,13 @@ btnAnalyze.addEventListener("click", async () => {
   }
 
   btnAnalyze.disabled = true;
-  status.textContent = "Ejecutando ANOVA + Tukey + LSD Fisher en backend online...";
+  btnParse.disabled = true;
+  btnClear.disabled = true;
+
+  resetProgress();
+  showProgress();
+  updateProgress(0, 0, 0);
+  status.textContent = "Iniciando análisis...";
 
   const payload = {
     rows: currentRows,
@@ -187,7 +242,9 @@ btnAnalyze.addEventListener("click", async () => {
   try {
     const res = await fetch(`${API_BASE}/analyze`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify(payload),
     });
 
@@ -196,24 +253,82 @@ btnAnalyze.addEventListener("click", async () => {
       throw new Error(txt || `HTTP ${res.status}`);
     }
 
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
+    const { job_id } = await res.json();
 
-    const safe = analysisName.trim().replace(/[^\w \-]/g, "_").trim() || "analysis";
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${safe}_anova_tukey_lsd.xlsx`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    const poll = setInterval(async () => {
+      try {
+        const s = await fetch(`${API_BASE}/status/${job_id}`);
+        if (!s.ok) {
+          throw new Error(`No se pudo consultar el estado. HTTP ${s.status}`);
+        }
 
-    URL.revokeObjectURL(url);
-    status.textContent = "Listo. Se descargó el Excel con ANOVA + Tukey + LSD Fisher.";
+        const data = await s.json();
+
+        updateProgress(
+          Number(data.progress || 0),
+          Number(data.current || 0),
+          Number(data.total || 0)
+        );
+
+        if (data.status === "done") {
+          clearInterval(poll);
+
+          progressBar.style.width = "100%";
+          progressText.textContent = "Análisis finalizado. Descargando archivo...";
+          status.textContent = "Descargando resultado...";
+
+          const file = await fetch(`${API_BASE}/download/${job_id}`);
+          if (!file.ok) {
+            throw new Error(`No se pudo descargar el archivo. HTTP ${file.status}`);
+          }
+
+          const blob = await file.blob();
+          const url = URL.createObjectURL(blob);
+
+          const safe =
+            analysisName.trim().replace(/[^\w \-]/g, "_").trim() || "analysis";
+
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `${safe}_anova_tukey_lsd.xlsx`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+
+          URL.revokeObjectURL(url);
+          status.textContent = "Listo. Se descargó el Excel con ANOVA + Tukey + LSD Fisher.";
+        }
+
+        if (data.status === "error") {
+          clearInterval(poll);
+          status.textContent = `Error: ${data.error || "falló el análisis."}`;
+          progressText.textContent = "El análisis terminó con error.";
+        }
+      } catch (err) {
+        clearInterval(poll);
+        console.error(err);
+        status.textContent = "Error consultando el progreso del análisis.";
+        progressText.textContent = "No se pudo continuar el seguimiento del job.";
+      } finally {
+        if (
+          progressText.textContent.includes("error") ||
+          status.textContent.startsWith("Listo.") ||
+          status.textContent.startsWith("Error")
+        ) {
+          btnAnalyze.disabled = false;
+          btnParse.disabled = false;
+          btnClear.disabled = false;
+        }
+      }
+    }, 1000);
   } catch (e) {
-    status.textContent =
-      "Error: el backend online no respondió. Probá abrir /health en Render y revisá CORS/logs.";
     console.error(e);
-  } finally {
+    status.textContent = "Error al iniciar el análisis en el backend.";
+    progressText.textContent = "No se pudo crear el job.";
     btnAnalyze.disabled = false;
+    btnParse.disabled = false;
+    btnClear.disabled = false;
   }
 });
+
+resetProgress();
