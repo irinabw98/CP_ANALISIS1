@@ -15,6 +15,7 @@
 }
 
 *{box-sizing:border-box}
+
 body{
   margin:0;
   color:var(--text);
@@ -42,9 +43,11 @@ body{
 }
 
 .badge{
-  width:44px;height:44px;
+  width:44px;
+  height:44px;
   border-radius:14px;
-  display:grid;place-items:center;
+  display:grid;
+  place-items:center;
   font-weight:800;
   background:linear-gradient(135deg, rgba(122,60,255,.95), rgba(200,139,255,.9));
   box-shadow:0 12px 30px rgba(122,60,255,.25);
@@ -152,8 +155,14 @@ button:hover{
   background:rgba(255,255,255,.10);
 }
 
-button:active{ transform:translateY(1px); }
-button:disabled{ opacity:.45; cursor:not-allowed; }
+button:active{
+  transform:translateY(1px);
+}
+
+button:disabled{
+  opacity:.45;
+  cursor:not-allowed;
+}
 
 button.primary{
   border-color:rgba(200,139,255,.55);
@@ -189,12 +198,14 @@ button.ghost{
 
 .grid{
   display:grid;
-  grid-template-columns: 1fr 1fr 180px;
+  grid-template-columns: 1fr 1fr 220px;
   gap:12px;
 }
 
 @media (max-width: 860px){
-  .grid{ grid-template-columns: 1fr; }
+  .grid{
+    grid-template-columns: 1fr;
+  }
 }
 
 label{
@@ -204,7 +215,8 @@ label{
   margin-bottom:6px;
 }
 
-select, input[type="number"]{
+select,
+input[type="number"]{
   width:100%;
   border-radius:14px;
   border:1px solid rgba(255,255,255,.16);
@@ -214,12 +226,15 @@ select, input[type="number"]{
   outline:none;
 }
 
-select:focus, input[type="number"]:focus{
+select:focus,
+input[type="number"]:focus{
   border-color:rgba(200,139,255,.55);
   box-shadow:0 0 0 3px rgba(200,139,255,.18);
 }
 
-.grouping{ margin-top:12px; }
+.grouping{
+  margin-top:12px;
+}
 
 .chips{
   display:flex;
@@ -241,8 +256,13 @@ select:focus, input[type="number"]:focus{
   transition:background .2s ease, border-color .2s ease, transform .05s ease;
 }
 
-.chip:hover{ border-color:rgba(255,255,255,.30); }
-.chip:active{ transform:translateY(1px); }
+.chip:hover{
+  border-color:rgba(255,255,255,.30);
+}
+
+.chip:active{
+  transform:translateY(1px);
+}
 
 .chip.on{
   border-color:rgba(200,139,255,.70);
@@ -262,7 +282,8 @@ table{
   font-size:13px;
 }
 
-th, td{
+th,
+td{
   border-bottom:1px solid rgba(255,255,255,.10);
   padding:9px 10px;
   white-space:nowrap;
@@ -276,9 +297,29 @@ th{
   backdrop-filter: blur(6px);
 }
 
+.progressWrap{
+  display:none;
+  margin-top:14px;
+}
 
-.grid{
-  display:grid;
-  grid-template-columns: 1fr 1fr 220px;
-  gap:12px;
+.progress{
+  width:100%;
+  height:12px;
+  background:rgba(255,255,255,.10);
+  border-radius:999px;
+  overflow:hidden;
+  border:1px solid rgba(255,255,255,.12);
+}
+
+#progressBar{
+  height:100%;
+  width:0%;
+  background:linear-gradient(90deg, #7a3cff, #c88bff);
+  transition:width .35s ease;
+}
+
+.progressText{
+  margin-top:8px;
+  font-size:13px;
+  color:rgba(255,255,255,.82);
 }
