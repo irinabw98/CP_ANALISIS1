@@ -16,10 +16,13 @@ const alphaInput = $("alpha");
 const progressWrap = $("progressWrap");
 const progressBar = $("progressBar");
 const progressText = $("progressText");
+const seNameModPanel = $("seNameModPanel");
+const seNameModRulesBox = $("seNameModRules");
 
 let currentRows = [];
 let currentCols = [];
 let selectedGroupCols = new Set();
+let seNameModValues = [];
 
 function resetProgress() {
   progressBar.style.width = "0%";
@@ -125,6 +128,128 @@ function fillSelect(selectEl, cols, preferredName) {
   }
 }
 
+function normSeName(value) {
+  return String(value ?? "").trim();
+}
+
+function shouldExcludeControlByDefault(seName) {
+  const clean = normSeName(seName).toLowerCase();
+  return clean === "fitotoxicidad (%)" || clean === "eficacia (%)";
+}
+
+function uniqueSeNameModValues(rows) {
+  const out = [];
+  const seen = new Set();
+
+  rows.forEach((row) => {
+    const value = normSeName(row.se_name_mod);
+    if (!value) return;
+    const key = value.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(value);
+  });
+
+  return out.sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }));
+}
+
+function renderSeNameModRules(rows, cols) {
+  seNameModRulesBox.innerHTML = "";
+  seNameModValues = [];
+
+  if (!cols.includes("se_name_mod")) {
+    seNameModPanel.style.display = "none";
+    return;
+  }
+
+  seNameModValues = uniqueSeNameModValues(rows);
+  if (!seNameModValues.length) {
+    seNameModPanel.style.display = "none";
+    return;
+  }
+
+  seNameModPanel.style.display = "block";
+
+  seNameModValues.forEach((name) => {
+    const defaultExclude = shouldExcludeControlByDefault(name);
+
+    const card = document.createElement("div");
+    card.className = "seRule";
+    card.dataset.seName = name;
+
+    const titleBox = document.createElement("div");
+    const title = document.createElement("div");
+    title.className = "seRuleName";
+    title.textContent = name;
+
+    const subtitle = document.createElement("div");
+    subtitle.className = "seRuleDefault";
+    subtitle.textContent = defaultExclude
+      ? "Default: testigo NO incluido en el análisis."
+      : "Default: testigo incluido en el análisis.";
+
+    titleBox.appendChild(title);
+    titleBox.appendChild(subtitle);
+
+    const includeBox = document.createElement("div");
+    const includeLabel = document.createElement("label");
+    includeLabel.textContent = "¿Incluye testigo?";
+    const includeSelect = document.createElement("select");
+    includeSelect.className = "seIncludeSelect";
+    includeSelect.innerHTML = `
+      <option value="yes">Sí, analizarlo con el resto</option>
+      <option value="no">No, excluirlo del análisis</option>
+    `;
+    includeSelect.value = defaultExclude ? "no" : "yes";
+    includeBox.appendChild(includeLabel);
+    includeBox.appendChild(includeSelect);
+
+    const controlBox = document.createElement("div");
+    const controlLabel = document.createElement("label");
+    controlLabel.textContent = "Treatment testigo";
+    const controlInput = document.createElement("input");
+    controlInput.className = "seControlInput";
+    controlInput.type = "text";
+    controlInput.value = "1";
+    controlInput.placeholder = "1";
+    controlInput.disabled = includeSelect.value !== "no";
+    controlBox.appendChild(controlLabel);
+    controlBox.appendChild(controlInput);
+
+    includeSelect.addEventListener("change", () => {
+      controlInput.disabled = includeSelect.value !== "no";
+      if (includeSelect.value === "no" && !controlInput.value.trim()) {
+        controlInput.value = "1";
+      }
+    });
+
+    card.appendChild(titleBox);
+    card.appendChild(includeBox);
+    card.appendChild(controlBox);
+    seNameModRulesBox.appendChild(card);
+  });
+}
+
+function collectSeNameModRules() {
+  const rules = {};
+  const cards = Array.from(document.querySelectorAll(".seRule"));
+
+  cards.forEach((card) => {
+    const name = card.dataset.seName;
+    const includeSelect = card.querySelector(".seIncludeSelect");
+    const controlInput = card.querySelector(".seControlInput");
+
+    if (!name || !includeSelect || !controlInput) return;
+
+    rules[name] = {
+      include_control: includeSelect.value === "yes",
+      control_treatment: (controlInput.value || "1").trim() || "1",
+    };
+  });
+
+  return rules;
+}
+
 function renderGroupChips(cols, exclude = []) {
   groupColsBox.innerHTML = "";
   selectedGroupCols = new Set();
@@ -135,6 +260,12 @@ function renderGroupChips(cols, exclude = []) {
     const chip = document.createElement("div");
     chip.className = "chip";
     chip.textContent = c;
+
+    if (c === "se_name_mod") {
+      selectedGroupCols.add(c);
+      chip.classList.add("on");
+      chip.title = "Se marca automáticamente para analizar cada se_name_mod por separado.";
+    }
 
     chip.addEventListener("click", () => {
       if (selectedGroupCols.has(c)) {
@@ -160,6 +291,9 @@ btnClear.addEventListener("click", () => {
   valueColSel.innerHTML = "";
   treatmentColSel.innerHTML = "";
   groupColsBox.innerHTML = "";
+  seNameModRulesBox.innerHTML = "";
+  seNameModPanel.style.display = "none";
+  seNameModValues = [];
 
   btnAnalyze.disabled = true;
   status.textContent = "Tabla limpiada.";
@@ -186,6 +320,7 @@ btnParse.addEventListener("click", () => {
 
     const exclude = [valueColSel.value, treatmentColSel.value];
     renderGroupChips(cols, exclude);
+    renderSeNameModRules(rows, cols);
 
     renderPreview(cols, rows);
     status.textContent = `Tabla cargada: ${rows.length} filas, ${cols.length} columnas.`;
@@ -205,6 +340,7 @@ btnParse.addEventListener("click", () => {
     if (!currentCols.length) return;
     const exclude = [valueColSel.value, treatmentColSel.value];
     renderGroupChips(currentCols, exclude);
+    renderSeNameModRules(currentRows, currentCols);
   });
 });
 
@@ -237,6 +373,8 @@ btnAnalyze.addEventListener("click", async () => {
     group_cols: Array.from(selectedGroupCols),
     alpha: Number(alphaInput.value || 0.05),
     analysis_name: analysisName.trim(),
+    se_name_mod_col: currentCols.includes("se_name_mod") ? "se_name_mod" : "",
+    se_name_mod_control_rules: collectSeNameModRules(),
   };
 
   try {

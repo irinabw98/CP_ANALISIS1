@@ -68,9 +68,18 @@
         <label>Columnas para agrupar</label>
         <p class="hint">
           Elegí todas las columnas que “parten” el experimento (momento, trial, parte evaluada, etc).
-          Cada combinación define un grupo con su propio ANOVA.
+          Cada combinación define un grupo con su propio ANOVA. Si existe <code>se_name_mod</code>, se marca automáticamente.
         </p>
         <div id="groupCols" class="chips"></div>
+      </div>
+
+      <div id="seNameModPanel" class="seNameModPanel">
+        <label>Configuración por se_name_mod</label>
+        <p class="hint">
+          Para cada variable detectada, definí si el testigo entra o no en el análisis. Si no entra, indicá cuál es el tratamiento testigo.
+          Ese testigo queda en el Excel, pero sus columnas estadísticas se completan con <code>-</code>.
+        </p>
+        <div id="seNameModRules" class="seNameModRules"></div>
       </div>
 
       <div class="row">
@@ -89,7 +98,7 @@
 
       <p class="hint">
         El Excel descargado incluye tu tabla + <code>group_key</code>, <code>analysis_name</code>, <code>assessment_value_num</code>,
-        resumen por tratamiento y resultados del ANOVA, Tukey y LSD Fisher.
+        resumen por tratamiento y resultados del ANOVA, Tukey y LSD Fisher. Cuando un testigo queda excluido, sus estadísticas salen como <code>-</code>.
       </p>
     </section>
 

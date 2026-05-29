@@ -456,6 +456,70 @@ def _run_group_analysis(
     return summary, anova_out, pairs_df
 
 
+
+def _norm_text(value: Any) -> str:
+    return str(value).strip().lower()
+
+
+def _norm_key(value: Any) -> str:
+    return str(value).strip()
+
+
+def _is_excluded_control_row(
+    row: pd.Series,
+    se_name_mod_col: str,
+    treatment_col: str,
+    control_rules: Dict[str, Dict[str, Any]],
+) -> bool:
+    if not se_name_mod_col or se_name_mod_col not in row.index:
+        return False
+
+    se_value = _norm_key(row.get(se_name_mod_col, ""))
+    rule = control_rules.get(se_value) or control_rules.get(_norm_text(se_value))
+    if not rule:
+        return False
+
+    include_control = bool(rule.get("include_control", True))
+    control_treatment = _norm_key(rule.get("control_treatment", "1") or "1")
+
+    if include_control:
+        return False
+
+    return _norm_key(row.get(treatment_col, "")) == control_treatment
+
+
+def _placeholder_summary_rows_for_excluded_controls(
+    df: pd.DataFrame,
+    treatment_col: str,
+    group_cols: List[str],
+) -> pd.DataFrame:
+    if "excluded_from_stats" not in df.columns:
+        return pd.DataFrame()
+
+    excluded = df[df["excluded_from_stats"] == True].copy()
+    if excluded.empty:
+        return pd.DataFrame()
+
+    rows = []
+    cols = (group_cols if group_cols else []) + [treatment_col]
+    for _, r in excluded[cols].drop_duplicates().iterrows():
+        item = {"treatment": str(r[treatment_col])}
+        for c in group_cols:
+            item[c] = r[c]
+        item.update({
+            "n": "-",
+            "mean": "-",
+            "sd": "-",
+            "tukey_letters": "-",
+            "tukey_class": "-",
+            "lsd_letters": "-",
+            "lsd_class": "-",
+            "stats_status": "excluded_control",
+        })
+        rows.append(item)
+
+    return pd.DataFrame(rows)
+
 def _make_group_key(row: pd.Series, group_cols: List[str]) -> str:
     parts = []
     for c in group_cols:
@@ -491,6 +555,21 @@ def _build_excel_output(
         else:
             for c in anova_cols:
                 final_df[c] = anova_df.iloc[0][c] if len(anova_df) else np.nan
+
+    stats_cols = [
+        "n", "mean", "sd", "tukey_letters", "tukey_class", "lsd_letters", "lsd_class",
+        "df", "F", "pvalue", "df_resid"
+    ]
+    if "excluded_from_stats" in final_df.columns:
+        mask = final_df["excluded_from_stats"] == True
+        for c in stats_cols:
+            if c in final_df.columns:
+                final_df[c] = final_df[c].astype(object)
+                final_df.loc[mask, c] = "-"
+        if "stats_status" not in final_df.columns:
+            final_df["stats_status"] = "analyzed"
+        final_df["stats_status"] = final_df["stats_status"].fillna("analyzed")
+        final_df.loc[mask, "stats_status"] = "excluded_control"
 
     if "group_key" in final_df.columns:
         gk = final_df.pop("group_key")
@@ -534,6 +613,14 @@ def _run_analysis_job(job_id: str, payload: Dict[str, Any]) -> None:
         group_cols = payload.get("group_cols", [])
         alpha = float(payload.get("alpha", 0.05))
         analysis_name = str(payload.get("analysis_name", "")).strip()
+        se_name_mod_col = str(payload.get("se_name_mod_col", "se_name_mod")).strip()
+        control_rules_raw = payload.get("se_name_mod_control_rules", {}) or {}
+        control_rules: Dict[str, Dict[str, Any]] = {}
+        if isinstance(control_rules_raw, dict):
+            for key, rule in control_rules_raw.items():
+                if isinstance(rule, dict):
+                    control_rules[_norm_key(key)] = rule
+                    control_rules[_norm_text(key)] = rule
 
         if not isinstance(rows, list) or len(rows) == 0:
             raise ValueError("rows vacío o inválido.")
@@ -553,7 +640,18 @@ def _run_analysis_job(job_id: str, payload: Dict[str, Any]) -> None:
             if c not in df.columns:
                 raise ValueError(f"Columna de agrupamiento no existe: {c}")
 
+        if se_name_mod_col and se_name_mod_col not in df.columns:
+            se_name_mod_col = ""
+
         df[treatment_col] = df[treatment_col].astype(str)
+
+        if se_name_mod_col and control_rules:
+            df["excluded_from_stats"] = df.apply(
+                lambda r: _is_excluded_control_row(r, se_name_mod_col, treatment_col, control_rules),
+                axis=1,
+            )
+        else:
+            df["excluded_from_stats"] = False
 
         _set_job(job_id, progress=2, message="Convirtiendo valores a numéricos...")
 
@@ -575,11 +673,15 @@ def _run_analysis_job(job_id: str, payload: Dict[str, Any]) -> None:
         pairs: List[pd.DataFrame] = []
 
         value_col_num = "assessment_value_num"
+        analysis_df = df[df["excluded_from_stats"] != True].copy()
+
+        if analysis_df.empty:
+            raise ValueError("No quedaron filas analizables luego de excluir testigos según se_name_mod.")
 
         if group_cols:
-            grouped_items = list(df.groupby(group_cols, dropna=False, sort=False))
+            grouped_items = list(analysis_df.groupby(group_cols, dropna=False, sort=False))
         else:
-            grouped_items = [("ALL", df)]
+            grouped_items = [("ALL", analysis_df)]
 
         total_groups = len(grouped_items)
 
@@ -636,6 +738,9 @@ def _run_analysis_job(job_id: str, payload: Dict[str, Any]) -> None:
         _set_job(job_id, progress=96, message="Armando resultados...")
 
         summary_df = pd.concat(summaries, ignore_index=True) if summaries else pd.DataFrame()
+        excluded_summary_df = _placeholder_summary_rows_for_excluded_controls(df, treatment_col, group_cols)
+        if not excluded_summary_df.empty:
+            summary_df = pd.concat([summary_df, excluded_summary_df], ignore_index=True, sort=False)
         anova_df = pd.concat(anovas, ignore_index=True) if anovas else pd.DataFrame()
         pairs_df = pd.concat(pairs, ignore_index=True) if pairs else pd.DataFrame()
 
@@ -757,4 +862,4 @@ def health():
 
 @app.get("/version")
 def version():
-    return {"version": "2026-03-30-jobs-progress-download-v2"}
+    return {"version": "2026-05-29-se-name-mod-control-rules-v1"}
