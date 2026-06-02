@@ -3,115 +3,170 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>CP_ANALISIS1 · ANOVA + Tukey + LSD Fisher (por grupos)</title>
+  <title>CP ANÁLISIS · ANOVA + Tukey + LSD Fisher</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
-
 <body>
-  <div class="app">
-    <header class="top">
-      <div class="brand">
+  <div class="appShell">
+    <aside class="sideIndex">
+      <div class="sideBrand">
         <div class="badge">CP</div>
         <div>
-          <h1>ANOVA + Tukey + LSD Fisher (por grupos)</h1>
-          <p class="subtitle">
-            Pegá tu tabla, definí cómo se segmenta el experimento y descargá un Excel con tu misma data + resultados.
-          </p>
+          <strong>CP Análisis</strong>
+          <span>ANOVA · Tukey · LSD</span>
         </div>
       </div>
+      <nav>
+        <a href="#datos">1. Datos</a>
+        <a href="#config">2. Configuración</a>
+        <a href="#localidad">3. Localidad</a>
+        <a href="#testigo">4. Testigo</a>
+        <a href="#preview">5. Vista previa</a>
+      </nav>
+    </aside>
 
-      <div class="hero">
+    <main class="app">
+      <header class="heroTop">
+        <div class="eyebrow">Irina Labs · CP style</div>
+        <h1>ANOVA + Tukey + LSD Fisher</h1>
         <p>
-          Esto está pensado para análisis rápidos de ensayos: vos definís el <b>valor</b>, el <b>tratamiento</b> y las columnas que
-          forman cada <b>grupo</b>. El backend corre el ANOVA y ambos post hoc, y te devuelve el archivo listo.
+          Pegá tu tabla, definí el alcance del análisis y descargá un Excel trazable. Ahora podés analizar
+          <b>por localidad</b>, <b>por protocolo</b> o <b>ambas opciones</b> en el mismo archivo.
         </p>
-      </div>
-    </header>
+      </header>
 
-    <section class="card">
-      <h2>1) Pegar datos</h2>
-      <p class="hint">Acepta TSV (copiado desde Excel) o CSV. La primera fila debe ser encabezados.</p>
+      <section id="datos" class="card numbered">
+        <div class="sectionTitle">
+          <span>01</span>
+          <div>
+            <h2>Pegar datos</h2>
+            <p>Acepta TSV copiado desde Excel o CSV simple. La primera fila debe contener encabezados.</p>
+          </div>
+        </div>
+        <textarea id="paste" placeholder="Pegá acá tu tabla..."></textarea>
+        <div class="row">
+          <button id="btnParse" type="button">Cargar / Previsualizar</button>
+          <button id="btnClear" class="ghost" type="button">Limpiar</button>
+          <span id="status" class="status"></span>
+        </div>
+      </section>
 
-      <textarea id="paste" placeholder="Pegá acá tu tabla..."></textarea>
-
-      <div class="row">
-        <button id="btnParse" type="button">Cargar / Previsualizar</button>
-        <button id="btnClear" class="ghost" type="button">Limpiar</button>
-        <span id="status" class="status"></span>
-      </div>
-    </section>
-
-    <section class="card">
-      <h2>2) Configurar el análisis</h2>
-
-      <div class="grid">
-        <div>
-          <label for="valueCol">Columna de valores</label>
-          <select id="valueCol"></select>
-          <p class="mini">Ej: <code>assessment_value</code></p>
+      <section id="config" class="card numbered">
+        <div class="sectionTitle">
+          <span>02</span>
+          <div>
+            <h2>Configurar columnas</h2>
+            <p>Elegí valor, tratamiento, alpha y los cortes del experimento.</p>
+          </div>
         </div>
 
-        <div>
-          <label for="treatmentCol">Columna de tratamientos</label>
-          <select id="treatmentCol"></select>
-          <p class="mini">Ej: <code>treatment</code></p>
+        <div class="grid four">
+          <div>
+            <label for="valueCol">Columna de valores</label>
+            <select id="valueCol"></select>
+            <p class="mini">Ej: <code>assessment_value</code></p>
+          </div>
+          <div>
+            <label for="treatmentCol">Columna de tratamientos</label>
+            <select id="treatmentCol"></select>
+            <p class="mini">Ej: <code>treatment</code></p>
+          </div>
+          <div>
+            <label for="locationCol">Columna de localidad</label>
+            <select id="locationCol"></select>
+            <p class="mini">Ej: <code>location</code>, <code>localidad</code>, <code>site</code></p>
+          </div>
+          <div>
+            <label for="alpha">Alpha</label>
+            <input id="alpha" type="number" step="0.001" min="0.001" max="0.2" value="0.05" />
+            <p class="mini">Default: 0.05</p>
+          </div>
         </div>
 
-        <div>
-          <label for="alpha">Alpha (ANOVA / Tukey / LSD)</label>
-          <input id="alpha" type="number" step="0.001" min="0.001" max="0.2" value="0.05" />
-          <p class="mini">Por defecto: 0.05</p>
+        <div class="grouping">
+          <label>Columnas para agrupar</label>
+          <p class="hint">
+            Elegí las columnas que cortan el experimento. Si existe <code>se_name_mod</code>, se marca automáticamente.
+            La localidad se maneja desde el bloque siguiente para evitar errores.
+          </p>
+          <div id="groupCols" class="chips"></div>
         </div>
-      </div>
+      </section>
 
-      <div class="grouping">
-        <label>Columnas para agrupar</label>
-        <p class="hint">
-          Elegí todas las columnas que “parten” el experimento (momento, trial, parte evaluada, etc).
-          Cada combinación define un grupo con su propio ANOVA. Si existe <code>se_name_mod</code>, se marca automáticamente.
+      <section id="localidad" class="card numbered accentCard">
+        <div class="sectionTitle">
+          <span>03</span>
+          <div>
+            <h2>Alcance por localidad</h2>
+            <p>Definí si el modelo separa localidades, junta todas las localidades o descarga ambas lecturas.</p>
+          </div>
+        </div>
+
+        <div class="scopeGrid" id="analysisScopeBox">
+          <label class="scopeCard on">
+            <input type="radio" name="analysisScope" value="location" checked />
+            <strong>Por localidad</strong>
+            <span>Cada localidad se analiza por separado.</span>
+          </label>
+          <label class="scopeCard">
+            <input type="radio" name="analysisScope" value="protocol" />
+            <strong>Por protocolo</strong>
+            <span>Junta localidades y no discrimina por localidad.</span>
+          </label>
+          <label class="scopeCard">
+            <input type="radio" name="analysisScope" value="both" />
+            <strong>Ambas</strong>
+            <span>El Excel duplica la salida: por localidad y por protocolo.</span>
+          </label>
+        </div>
+
+        <p class="hint strongHint">
+          Si elegís <b>Ambas</b>, el Excel agrega <code>analysis_scope</code>, <code>analysis_basis</code> y
+          <code>location_analysis_note</code> para distinguir qué líneas pertenecen al análisis por localidad y cuáles al análisis por protocolo.
         </p>
-        <div id="groupCols" class="chips"></div>
-      </div>
+      </section>
 
-      <div id="seNameModPanel" class="seNameModPanel">
-        <label>Configuración por se_name_mod</label>
-        <p class="hint">
-          Para cada variable detectada, definí si el testigo entra o no en el análisis. Si no entra, indicá cuál es el tratamiento testigo.
-          Ese testigo queda en el Excel, pero sus columnas estadísticas se completan con <code>-</code>.
-        </p>
-        <div id="seNameModRules" class="seNameModRules"></div>
-      </div>
-
-      <div class="row">
-        <button id="btnAnalyze" class="primary" type="button" disabled>
-          Ejecutar y descargar Excel
-        </button>
-        <span class="pill">Online · Render</span>
-      </div>
-
-      <div id="progressWrap" class="progressWrap">
-        <div class="progress">
-          <div id="progressBar"></div>
+      <section id="testigo" class="card numbered">
+        <div class="sectionTitle">
+          <span>04</span>
+          <div>
+            <h2>Configuración por se_name_mod</h2>
+            <p>Cuando existe <code>se_name_mod</code>, podés excluir testigos del cálculo sin sacarlos del Excel.</p>
+          </div>
         </div>
-        <div id="progressText" class="progressText"></div>
-      </div>
 
-      <p class="hint">
-        El Excel descargado incluye tu tabla + <code>group_key</code>, <code>analysis_name</code>, <code>assessment_value_num</code>,
-        resumen por tratamiento y resultados del ANOVA, Tukey y LSD Fisher. Cuando un testigo queda excluido, sus estadísticas salen como <code>-</code>.
-      </p>
-    </section>
+        <div id="seNameModPanel" class="seNameModPanel">
+          <p class="hint">
+            Para cada variable detectada, definí si el testigo entra o no en el análisis. Si no entra, indicá cuál es el treatment testigo.
+            Para <code>Fitotoxicidad (%)</code> y <code>Eficacia (%)</code>, el default es excluir testigo.
+          </p>
+          <div id="seNameModRules" class="seNameModRules"></div>
+        </div>
+        <p id="noSeNameMod" class="emptyState">Todavía no se detectó <code>se_name_mod</code>. Cargá la tabla para revisar esta sección.</p>
 
-    <section class="card">
-      <h2>3) Vista previa</h2>
-      <p class="hint">Vas a ver las primeras filas para confirmar que el pegado quedó bien.</p>
+        <div class="row actionRow">
+          <button id="btnAnalyze" class="primary" type="button" disabled>Ejecutar y descargar Excel</button>
+          <span class="pill">Backend FastAPI · Export Excel</span>
+        </div>
 
-      <div class="tableWrap">
-        <table id="preview"></table>
-      </div>
-    </section>
+        <div id="progressWrap" class="progressWrap">
+          <div class="progress"><div id="progressBar"></div></div>
+          <div id="progressText" class="progressText"></div>
+        </div>
+      </section>
+
+      <section id="preview" class="card numbered">
+        <div class="sectionTitle">
+          <span>05</span>
+          <div>
+            <h2>Vista previa</h2>
+            <p>Primeras filas del pegado para confirmar que las columnas se leyeron correctamente.</p>
+          </div>
+        </div>
+        <div class="tableWrap"><table id="previewTable"></table></div>
+      </section>
+    </main>
   </div>
-
   <script src="app.js"></script>
 </body>
 </html>

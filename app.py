@@ -530,31 +530,75 @@ def _make_group_key(row: pd.Series, group_cols: List[str]) -> str:
     return " | ".join(parts)
 
 
-def _build_excel_output(
-    df: pd.DataFrame,
+
+def _style_excel_workbook(writer) -> None:
+    """Aplica un formato simple tipo CP Correlación/Irina Labs al Excel exportado."""
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+
+    header_fill = PatternFill("solid", fgColor="00B5E2")  # celeste Bayer
+    sub_fill = PatternFill("solid", fgColor="EAF8FC")
+    white_fill = PatternFill("solid", fgColor="FFFFFF")
+    thick_side = Side(style="medium", color="111111")
+    thin_side = Side(style="thin", color="D9D9D9")
+    border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+
+    for ws in writer.book.worksheets:
+        ws.freeze_panes = "A2"
+        ws.sheet_view.showGridLines = False
+        if ws.max_row >= 1:
+            for cell in ws[1]:
+                cell.fill = header_fill
+                cell.font = Font(bold=True, color="FFFFFF")
+                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                cell.border = Border(left=thick_side, right=thick_side, top=thick_side, bottom=thick_side)
+        for row in ws.iter_rows(min_row=2):
+            for cell in row:
+                cell.fill = white_fill
+                cell.border = border
+                cell.alignment = Alignment(vertical="center", wrap_text=False)
+        # Resalta columnas de alcance del análisis
+        for col_idx, cell in enumerate(ws[1], start=1):
+            if str(cell.value or "") in {"analysis_scope", "analysis_basis", "location_analysis_note", "group_key"}:
+                for r in range(1, ws.max_row + 1):
+                    ws.cell(r, col_idx).fill = header_fill if r == 1 else sub_fill
+                    if r == 1:
+                        ws.cell(r, col_idx).font = Font(bold=True, color="FFFFFF")
+        for col_idx in range(1, ws.max_column + 1):
+            letter = get_column_letter(col_idx)
+            max_len = 10
+            for cell in ws[letter]:
+                value = "" if cell.value is None else str(cell.value)
+                max_len = max(max_len, min(len(value), 45))
+            ws.column_dimensions[letter].width = min(max(max_len + 2, 11), 38)
+        ws.auto_filter.ref = ws.dimensions
+
+
+def _merge_scope_results(
+    df_scope: pd.DataFrame,
     summary_df: pd.DataFrame,
     anova_df: pd.DataFrame,
-    pairs_df: pd.DataFrame,
     treatment_col: str,
     group_cols: List[str],
-    analysis_name: str,
-) -> io.BytesIO:
-    base_df = df.copy().rename(columns={treatment_col: "treatment"})
+) -> pd.DataFrame:
+    base_df = df_scope.copy().rename(columns={treatment_col: "treatment"})
+    merge_keys = ["analysis_scope"] + (group_cols if group_cols else []) + ["treatment"]
 
     if not summary_df.empty:
-        merge_keys = (group_cols if group_cols else []) + ["treatment"]
         final_df = base_df.merge(summary_df, on=merge_keys, how="left")
     else:
         final_df = base_df
 
     if not anova_df.empty:
         anova_cols = [c for c in ["df", "F", "pvalue", "df_resid", "error"] if c in anova_df.columns]
-        if group_cols:
-            a_small = anova_df[group_cols + anova_cols].copy()
-            final_df = final_df.merge(a_small, on=group_cols, how="left", suffixes=("", "_anova"))
-        else:
+        key_cols = ["analysis_scope"] + (group_cols if group_cols else [])
+        available_key_cols = [c for c in key_cols if c in anova_df.columns]
+        a_small = anova_df[available_key_cols + anova_cols].copy().drop_duplicates()
+        if available_key_cols:
+            final_df = final_df.merge(a_small, on=available_key_cols, how="left", suffixes=("", "_anova"))
+        elif len(anova_df):
             for c in anova_cols:
-                final_df[c] = anova_df.iloc[0][c] if len(anova_df) else np.nan
+                final_df[c] = anova_df.iloc[0][c]
 
     stats_cols = [
         "n", "mean", "sd", "tukey_letters", "tukey_class", "lsd_letters", "lsd_class",
@@ -571,38 +615,133 @@ def _build_excel_output(
         final_df["stats_status"] = final_df["stats_status"].fillna("analyzed")
         final_df.loc[mask, "stats_status"] = "excluded_control"
 
-    if "group_key" in final_df.columns:
-        gk = final_df.pop("group_key")
-        final_df.insert(0, "group_key", gk)
+    return final_df
 
-    preferred_front = ["analysis_name", "assessment_value_num", "assessment_value_x1"]
+
+def _analyze_scope(
+    job_id: str,
+    df: pd.DataFrame,
+    treatment_col: str,
+    group_cols: List[str],
+    alpha: float,
+    scope_label: str,
+    scope_note: str,
+    group_offset: int,
+    total_groups_all: int,
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, int]:
+    df_scope = df.copy()
+    df_scope["analysis_scope"] = scope_label
+    df_scope["analysis_basis"] = "por_localidad" if scope_label == "Por localidad" else "por_protocolo"
+    df_scope["location_analysis_note"] = scope_note
+    df_scope["group_key"] = df_scope.apply(lambda r: _make_group_key(r, group_cols), axis=1) if group_cols else "ALL"
+
+    summaries: List[pd.DataFrame] = []
+    anovas: List[pd.DataFrame] = []
+    pairs: List[pd.DataFrame] = []
+
+    value_col_num = "assessment_value_num"
+    analysis_df = df_scope[df_scope["excluded_from_stats"] != True].copy()
+    if analysis_df.empty:
+        raise ValueError("No quedaron filas analizables luego de excluir testigos según se_name_mod.")
+
+    grouped_items = list(analysis_df.groupby(group_cols, dropna=False, sort=False)) if group_cols else [("ALL", analysis_df)]
+    if len(grouped_items) > MAX_GROUPS:
+        raise ValueError(f"Demasiados grupos ({len(grouped_items)}). Máximo permitido: {MAX_GROUPS}.")
+
+    for idx_group, (keys, gdf) in enumerate(grouped_items, start=1):
+        key_dict: Dict[str, Any] = {"analysis_scope": scope_label}
+        if group_cols:
+            if isinstance(keys, tuple):
+                for col, val in zip(group_cols, keys):
+                    key_dict[col] = val
+            else:
+                key_dict[group_cols[0]] = keys
+        try:
+            s, a, p = _run_group_analysis(gdf, value_col_num, treatment_col, alpha)
+            for col, val in key_dict.items():
+                s[col] = val
+                a[col] = val
+                p[col] = val
+            summaries.append(s)
+            anovas.append(a)
+            pairs.append(p)
+        except Exception as e:
+            err = {"error": str(e), "analysis_scope": scope_label}
+            for col, val in key_dict.items():
+                err[col] = val
+            anovas.append(pd.DataFrame([err]))
+
+        done = group_offset + idx_group
+        progress = int(5 + (done / max(total_groups_all, 1)) * 88)
+        _set_job(
+            job_id,
+            current=done,
+            total=total_groups_all,
+            progress=min(progress, 95),
+            message=f"Procesando {done}/{total_groups_all} grupos..."
+        )
+
+    summary_df = pd.concat(summaries, ignore_index=True) if summaries else pd.DataFrame()
+    excluded_summary_df = _placeholder_summary_rows_for_excluded_controls(df_scope, treatment_col, group_cols)
+    if not excluded_summary_df.empty:
+        excluded_summary_df["analysis_scope"] = scope_label
+        summary_df = pd.concat([summary_df, excluded_summary_df], ignore_index=True, sort=False)
+    anova_df = pd.concat(anovas, ignore_index=True) if anovas else pd.DataFrame()
+    pairs_df = pd.concat(pairs, ignore_index=True) if pairs else pd.DataFrame()
+    result_df = _merge_scope_results(df_scope, summary_df, anova_df, treatment_col, group_cols)
+    return result_df, summary_df, anova_df, pairs_df, len(grouped_items)
+
+
+def _build_excel_output(
+    final_df: pd.DataFrame,
+    summary_df: pd.DataFrame,
+    anova_df: pd.DataFrame,
+    pairs_df: pd.DataFrame,
+    analysis_name: str,
+) -> io.BytesIO:
+    output = io.BytesIO()
+
+    preferred_front = [
+        "group_key", "analysis_name", "analysis_scope", "analysis_basis", "location_analysis_note",
+        "assessment_value_num", "assessment_value_x1"
+    ]
     for col in reversed(preferred_front):
         if col in final_df.columns:
             s_col = final_df.pop(col)
-            final_df.insert(1, col, s_col)
-
-    output = io.BytesIO()
+            final_df.insert(0, col, s_col)
 
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         final_df.to_excel(writer, index=False, sheet_name="results")
-
         if not summary_df.empty:
             summary_df.to_excel(writer, index=False, sheet_name="summary_by_treatment")
-
         if not anova_df.empty:
             anova_df.to_excel(writer, index=False, sheet_name="anova_detail")
-
         if not pairs_df.empty:
-            tukey_df = pairs_df[pairs_df["method"] == "tukey"].copy()
-            lsd_df = pairs_df[pairs_df["method"] == "lsd_fisher"].copy()
-
+            tukey_df = pairs_df[pairs_df["method"] == "tukey"].copy() if "method" in pairs_df.columns else pd.DataFrame()
+            lsd_df = pairs_df[pairs_df["method"] == "lsd_fisher"].copy() if "method" in pairs_df.columns else pd.DataFrame()
             if not tukey_df.empty:
                 tukey_df.to_excel(writer, index=False, sheet_name="tukey_pairs_detail")
             if not lsd_df.empty:
                 lsd_df.to_excel(writer, index=False, sheet_name="lsd_pairs_detail")
+        scope_readme = pd.DataFrame([
+            {"campo": "Por localidad", "significado": "El análisis se calcula separando cada localidad. La localidad forma parte del group_key."},
+            {"campo": "Por protocolo", "significado": "El análisis se calcula juntando todas las localidades. La localidad NO forma parte del modelo/grupo estadístico."},
+            {"campo": "analysis_scope", "significado": "Indica si esa fila corresponde al análisis por localidad o al análisis por protocolo."},
+            {"campo": "location_analysis_note", "significado": "Aclara si la línea fue analizada discriminando localidad o juntando localidades."},
+        ])
+        scope_readme.to_excel(writer, index=False, sheet_name="analysis_scope_readme")
+        _style_excel_workbook(writer)
 
     output.seek(0)
     return output
+
+
+def _unique_keep_order(items: List[str]) -> List[str]:
+    out: List[str] = []
+    for x in items:
+        if x and x not in out:
+            out.append(x)
+    return out
 
 
 def _run_analysis_job(job_id: str, payload: Dict[str, Any]) -> None:
@@ -610,9 +749,11 @@ def _run_analysis_job(job_id: str, payload: Dict[str, Any]) -> None:
         rows = payload.get("rows")
         value_col = payload.get("value_col", "assessment_value")
         treatment_col = payload.get("treatment_col", "treatment")
-        group_cols = payload.get("group_cols", [])
+        group_cols = payload.get("group_cols", []) or []
         alpha = float(payload.get("alpha", 0.05))
         analysis_name = str(payload.get("analysis_name", "")).strip()
+        analysis_scope = str(payload.get("analysis_scope", "location")).strip().lower()
+        location_col = str(payload.get("location_col", "")).strip()
         se_name_mod_col = str(payload.get("se_name_mod_col", "se_name_mod")).strip()
         control_rules_raw = payload.get("se_name_mod_control_rules", {}) or {}
         control_rules: Dict[str, Dict[str, Any]] = {}
@@ -626,25 +767,26 @@ def _run_analysis_job(job_id: str, payload: Dict[str, Any]) -> None:
             raise ValueError("rows vacío o inválido.")
         if analysis_name == "":
             raise ValueError("analysis_name es requerido.")
-
         if len(rows) > MAX_ROWS:
             raise ValueError(f"Dataset demasiado grande. Máximo permitido: {MAX_ROWS} filas.")
+        if analysis_scope not in {"location", "protocol", "both"}:
+            analysis_scope = "location"
 
         df = pd.DataFrame(rows)
-
         missing = [c for c in [value_col, treatment_col] if c not in df.columns]
         if missing:
             raise ValueError(f"Faltan columnas requeridas: {missing}")
-
         for c in group_cols:
             if c not in df.columns:
                 raise ValueError(f"Columna de agrupamiento no existe: {c}")
-
+        if location_col and location_col not in df.columns:
+            raise ValueError(f"La columna de localidad seleccionada no existe: {location_col}")
+        if analysis_scope in {"location", "both"} and not location_col:
+            raise ValueError("Para analizar por localidad o ambas opciones, seleccioná una columna de localidad.")
         if se_name_mod_col and se_name_mod_col not in df.columns:
             se_name_mod_col = ""
 
         df[treatment_col] = df[treatment_col].astype(str)
-
         if se_name_mod_col and control_rules:
             df["excluded_from_stats"] = df.apply(
                 lambda r: _is_excluded_control_row(r, se_name_mod_col, treatment_col, control_rules),
@@ -654,130 +796,67 @@ def _run_analysis_job(job_id: str, payload: Dict[str, Any]) -> None:
             df["excluded_from_stats"] = False
 
         _set_job(job_id, progress=2, message="Convirtiendo valores a numéricos...")
-
         df["assessment_value_num"] = _to_numeric_series_strong(df[value_col])
         df["assessment_value_x1"] = df["assessment_value_num"] * 1.0
         df = df.dropna(subset=["assessment_value_num"])
-
         if df.empty:
             raise ValueError(f"No quedaron filas con valores numéricos en '{value_col}'.")
-
         df["analysis_name"] = analysis_name
-        if group_cols:
-            df["group_key"] = df.apply(lambda r: _make_group_key(r, group_cols), axis=1)
-        else:
-            df["group_key"] = "ALL"
 
-        summaries: List[pd.DataFrame] = []
-        anovas: List[pd.DataFrame] = []
-        pairs: List[pd.DataFrame] = []
+        base_group_cols = _unique_keep_order([c for c in group_cols if c not in {value_col, treatment_col}])
+        scopes: List[Tuple[str, List[str], str]] = []
+        if analysis_scope in {"location", "both"}:
+            local_cols = _unique_keep_order(base_group_cols + ([location_col] if location_col else []))
+            scopes.append(("Por localidad", local_cols, "Línea analizada por localidad: la localidad entra como corte del análisis."))
+        if analysis_scope in {"protocol", "both"}:
+            protocol_cols = _unique_keep_order([c for c in base_group_cols if c != location_col])
+            scopes.append(("Por protocolo", protocol_cols, "Línea analizada por protocolo: se juntan todas las localidades."))
 
-        value_col_num = "assessment_value_num"
-        analysis_df = df[df["excluded_from_stats"] != True].copy()
+        # Cuenta grupos totales antes de correr para que la barra de progreso sea clara.
+        analysis_df_tmp = df[df["excluded_from_stats"] != True].copy()
+        total_groups_all = 0
+        for _, cols_scope, _ in scopes:
+            total_groups_all += len(list(analysis_df_tmp.groupby(cols_scope, dropna=False, sort=False))) if cols_scope else 1
+        if total_groups_all > MAX_GROUPS:
+            raise ValueError(f"Demasiados grupos totales ({total_groups_all}). Máximo permitido: {MAX_GROUPS}.")
+        _set_job(job_id, total=total_groups_all, current=0, progress=5, status="running", message=f"Procesando 0/{total_groups_all} grupos...")
 
-        if analysis_df.empty:
-            raise ValueError("No quedaron filas analizables luego de excluir testigos según se_name_mod.")
-
-        if group_cols:
-            grouped_items = list(analysis_df.groupby(group_cols, dropna=False, sort=False))
-        else:
-            grouped_items = [("ALL", analysis_df)]
-
-        total_groups = len(grouped_items)
-
-        if total_groups > MAX_GROUPS:
-            raise ValueError(f"Demasiados grupos ({total_groups}). Máximo permitido: {MAX_GROUPS}.")
-
-        _set_job(
-            job_id,
-            total=total_groups,
-            current=0,
-            progress=5,
-            status="running",
-            message=f"Procesando 0/{total_groups} grupos..."
-        )
-
-        for idx_group, (keys, gdf) in enumerate(grouped_items, start=1):
-            key_dict: Dict[str, Any] = {}
-
-            if group_cols:
-                if isinstance(keys, tuple):
-                    for col, val in zip(group_cols, keys):
-                        key_dict[col] = val
-                else:
-                    key_dict[group_cols[0]] = keys
-
-            try:
-                s, a, p = _run_group_analysis(gdf, value_col_num, treatment_col, alpha)
-
-                for col, val in key_dict.items():
-                    s[col] = val
-                    a[col] = val
-                    p[col] = val
-
-                summaries.append(s)
-                anovas.append(a)
-                pairs.append(p)
-
-            except Exception as e:
-                err = {"error": str(e)}
-                for col, val in key_dict.items():
-                    err[col] = val
-                anovas.append(pd.DataFrame([err]))
-
-            progress = int(5 + (idx_group / max(total_groups, 1)) * 85)
-
-            _set_job(
-                job_id,
-                current=idx_group,
-                total=total_groups,
-                progress=min(progress, 95),
-                message=f"Procesando {idx_group}/{total_groups} grupos..."
+        all_results: List[pd.DataFrame] = []
+        all_summaries: List[pd.DataFrame] = []
+        all_anovas: List[pd.DataFrame] = []
+        all_pairs: List[pd.DataFrame] = []
+        done_offset = 0
+        for scope_label, cols_scope, note in scopes:
+            result_df, summary_df, anova_df, pairs_df, groups_done = _analyze_scope(
+                job_id=job_id,
+                df=df,
+                treatment_col=treatment_col,
+                group_cols=cols_scope,
+                alpha=alpha,
+                scope_label=scope_label,
+                scope_note=note,
+                group_offset=done_offset,
+                total_groups_all=total_groups_all,
             )
+            done_offset += groups_done
+            all_results.append(result_df)
+            all_summaries.append(summary_df)
+            all_anovas.append(anova_df)
+            all_pairs.append(pairs_df)
 
         _set_job(job_id, progress=96, message="Armando resultados...")
+        final_df = pd.concat(all_results, ignore_index=True, sort=False) if all_results else pd.DataFrame()
+        summary_df = pd.concat(all_summaries, ignore_index=True, sort=False) if all_summaries else pd.DataFrame()
+        anova_df = pd.concat(all_anovas, ignore_index=True, sort=False) if all_anovas else pd.DataFrame()
+        pairs_df = pd.concat(all_pairs, ignore_index=True, sort=False) if all_pairs else pd.DataFrame()
 
-        summary_df = pd.concat(summaries, ignore_index=True) if summaries else pd.DataFrame()
-        excluded_summary_df = _placeholder_summary_rows_for_excluded_controls(df, treatment_col, group_cols)
-        if not excluded_summary_df.empty:
-            summary_df = pd.concat([summary_df, excluded_summary_df], ignore_index=True, sort=False)
-        anova_df = pd.concat(anovas, ignore_index=True) if anovas else pd.DataFrame()
-        pairs_df = pd.concat(pairs, ignore_index=True) if pairs else pd.DataFrame()
-
-        output = _build_excel_output(
-            df=df,
-            summary_df=summary_df,
-            anova_df=anova_df,
-            pairs_df=pairs_df,
-            treatment_col=treatment_col,
-            group_cols=group_cols,
-            analysis_name=analysis_name,
-        )
-
-        safe_name = "".join(ch if ch.isalnum() or ch in (" ", "_", "-") else "_" for ch in analysis_name).strip()
-        if safe_name == "":
-            safe_name = "analysis"
-
-        filename = f"{safe_name}_anova_tukey_lsd.xlsx"
-
-        _set_job(
-            job_id,
-            status="done",
-            progress=100,
-            message="Análisis finalizado.",
-            result_bytes=output.getvalue(),
-            filename=filename,
-        )
-
+        output = _build_excel_output(final_df=final_df, summary_df=summary_df, anova_df=anova_df, pairs_df=pairs_df, analysis_name=analysis_name)
+        safe_name = "".join(ch if ch.isalnum() or ch in (" ", "_", "-") else "_" for ch in analysis_name).strip() or "analysis"
+        suffix = {"location": "por_localidad", "protocol": "por_protocolo", "both": "ambos"}.get(analysis_scope, "analisis")
+        filename = f"{safe_name}_anova_tukey_lsd_{suffix}.xlsx"
+        _set_job(job_id, status="done", progress=100, message="Análisis finalizado.", result_bytes=output.getvalue(), filename=filename)
     except Exception as e:
-        _set_job(
-            job_id,
-            status="error",
-            progress=100,
-            message="El análisis terminó con error.",
-            error=str(e),
-        )
-
+        _set_job(job_id, status="error", progress=100, message="El análisis terminó con error.", error=str(e))
 
 @app.post("/analyze")
 def analyze(
@@ -862,4 +941,4 @@ def health():
 
 @app.get("/version")
 def version():
-    return {"version": "2026-05-29-se-name-mod-control-rules-v1"}
+    return {"version": "2026-06-02-location-scope-both-v1"}
