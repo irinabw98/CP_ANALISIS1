@@ -20,9 +20,6 @@ from statsmodels.stats.multicomp import pairwise_tukeyhsd
 app = FastAPI(title="ANOVA + Tukey + LSD Fisher (grouped) API")
 
 ALLOWED_ORIGINS = [
-    "https://irinabw98.github.io",
-    "https://irinabw98.github.io/CP_ANALISIS1",
-    "https://irinabw98.github.io/CP_ANALISIS1/",
     "http://127.0.0.1:5500",
     "http://localhost:5500",
     "http://127.0.0.1:5501",
@@ -532,7 +529,7 @@ def _make_group_key(row: pd.Series, group_cols: List[str]) -> str:
 
 
 def _style_excel_workbook(writer) -> None:
-    """Aplica un formato simple tipo CP Correlación/Irina Labs al Excel exportado."""
+    """Aplica un formato corporativo Bayer al Excel exportado."""
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     from openpyxl.utils import get_column_letter
 
@@ -581,11 +578,19 @@ def _merge_scope_results(
     treatment_col: str,
     group_cols: List[str],
 ) -> pd.DataFrame:
-    base_df = df_scope.copy().rename(columns={treatment_col: "treatment"})
-    merge_keys = ["analysis_scope"] + (group_cols if group_cols else []) + ["treatment"]
+    base_df = df_scope.copy()
+    left_merge_keys = ["analysis_scope"] + (group_cols if group_cols else []) + [treatment_col]
+    right_merge_keys = ["analysis_scope"] + (group_cols if group_cols else []) + ["treatment"]
 
     if not summary_df.empty:
-        final_df = base_df.merge(summary_df, on=merge_keys, how="left")
+        final_df = base_df.merge(
+            summary_df,
+            left_on=left_merge_keys,
+            right_on=right_merge_keys,
+            how="left",
+        )
+        if treatment_col != "treatment" and "treatment" in final_df.columns:
+            final_df = final_df.drop(columns=["treatment"])
     else:
         final_df = base_df
 
@@ -698,17 +703,13 @@ def _build_excel_output(
     anova_df: pd.DataFrame,
     pairs_df: pd.DataFrame,
     analysis_name: str,
+    original_columns: List[str],
 ) -> io.BytesIO:
     output = io.BytesIO()
 
-    preferred_front = [
-        "group_key", "analysis_name", "analysis_scope", "analysis_basis", "location_analysis_note",
-        "assessment_value_num", "assessment_value_x1"
-    ]
-    for col in reversed(preferred_front):
-        if col in final_df.columns:
-            s_col = final_df.pop(col)
-            final_df.insert(0, col, s_col)
+    original_front = [col for col in original_columns if col in final_df.columns]
+    calculated_cols = [col for col in final_df.columns if col not in original_front]
+    final_df = final_df[original_front + calculated_cols]
 
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         final_df.to_excel(writer, index=False, sheet_name="results")
@@ -773,6 +774,7 @@ def _run_analysis_job(job_id: str, payload: Dict[str, Any]) -> None:
             analysis_scope = "location"
 
         df = pd.DataFrame(rows)
+        original_columns = list(df.columns)
         missing = [c for c in [value_col, treatment_col] if c not in df.columns]
         if missing:
             raise ValueError(f"Faltan columnas requeridas: {missing}")
@@ -850,7 +852,14 @@ def _run_analysis_job(job_id: str, payload: Dict[str, Any]) -> None:
         anova_df = pd.concat(all_anovas, ignore_index=True, sort=False) if all_anovas else pd.DataFrame()
         pairs_df = pd.concat(all_pairs, ignore_index=True, sort=False) if all_pairs else pd.DataFrame()
 
-        output = _build_excel_output(final_df=final_df, summary_df=summary_df, anova_df=anova_df, pairs_df=pairs_df, analysis_name=analysis_name)
+        output = _build_excel_output(
+            final_df=final_df,
+            summary_df=summary_df,
+            anova_df=anova_df,
+            pairs_df=pairs_df,
+            analysis_name=analysis_name,
+            original_columns=original_columns,
+        )
         safe_name = "".join(ch if ch.isalnum() or ch in (" ", "_", "-") else "_" for ch in analysis_name).strip() or "analysis"
         suffix = {"location": "por_localidad", "protocol": "por_protocolo", "both": "ambos"}.get(analysis_scope, "analisis")
         filename = f"{safe_name}_anova_tukey_lsd_{suffix}.xlsx"

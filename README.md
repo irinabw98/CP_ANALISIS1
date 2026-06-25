@@ -1,146 +1,86 @@
-<div align="center">
+# ANOVA Tukey
 
-# 💜 CP ANÁLISIS
-### ANOVA + Tukey + LSD Fisher por grupos
-### Con análisis por localidad, por protocolo o ambos
+Aplicacion web para pegar tablas desde Excel, correr analisis por grupos y descargar un Excel con:
 
-![Python](https://img.shields.io/badge/Python-3.11-7F3FBF?style=for-the-badge&logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-Backend-8A2BE2?style=for-the-badge&logo=fastapi&logoColor=white)
-![Statsmodels](https://img.shields.io/badge/Statsmodels-ANOVA%20%2B%20PostHoc-6A0DAD?style=for-the-badge)
-![Render](https://img.shields.io/badge/Render-Online-A855F7?style=for-the-badge)
-![Excel](https://img.shields.io/badge/Export-Excel-00B5E2?style=for-the-badge)
+- ANOVA
+- Tukey HSD
+- LSD Fisher
+- resumen por tratamiento
+- detalle de comparaciones por pares
 
-Aplicación web para pegar tablas desde Excel, correr **ANOVA por grupos** y descargar un Excel con:
+## Identidad visual
 
-**ANOVA + Tukey HSD + Fisher LSD**
+La interfaz usa una estetica corporativa Bayer, con el logo local `bayer-logo.jpg`, base blanca, azul/verde Bayer y acentos violetas.
 
-</div>
+## Alcance del analisis
 
----
+La app permite elegir:
 
-## Cambios de esta versión
+- **Por localidad**: cada localidad se analiza por separado.
+- **Por protocolo**: se juntan las localidades y no se usan como corte estadistico.
+- **Ambas**: el Excel incluye las dos lecturas.
 
-Esta versión replica una estética tipo **CP Correlación / Irina Labs**: fondo violeta, índice lateral, bloques numerados, tarjetas de configuración y Excel exportado con encabezados celeste Bayer.
+Cuando se elige **Ambas**, el Excel agrega columnas de trazabilidad al final de la hoja `results`, por ejemplo:
 
-También agrega el nuevo selector de alcance del análisis:
+- `analysis_scope`
+- `analysis_basis`
+- `location_analysis_note`
+- `group_key`
 
-- **Por localidad:** cada localidad se analiza por separado.
-- **Por protocolo:** se juntan todas las localidades y el modelo no discrimina por localidad.
-- **Ambas:** el Excel incluye dos lecturas. Una por localidad y otra por protocolo.
+## Orden del exportable
 
-Cuando se elige **Ambas**, el Excel agrega columnas de trazabilidad:
+La hoja `results` conserva primero las columnas originales pegadas por la usuaria, en el mismo orden. Las columnas calculadas por el analisis se agregan despues.
 
-| columna | uso |
-|---|---|
-| `analysis_scope` | indica si la fila corresponde a `Por localidad` o `Por protocolo` |
-| `analysis_basis` | indica `por_localidad` o `por_protocolo` |
-| `location_analysis_note` | aclara cómo fue analizada esa línea |
-| `group_key` | muestra el corte estadístico usado para ese resultado |
-
-Además, se agrega una hoja `analysis_scope_readme` explicando cómo interpretar esas columnas.
-
----
-
-## Regla de localidad
-
-La app ahora pregunta qué columna corresponde a localidad. Intenta detectar automáticamente nombres como:
-
-- `localidad`
-- `location`
-- `loc`
-- `site`
-- `trial_site`
-- `lugar`
-
-Si se analiza **por localidad**, esa columna se suma al corte del análisis.
-
-Si se analiza **por protocolo**, esa columna se conserva en la tabla descargada, pero no se usa para separar el análisis.
-
----
-
-## Regla del testigo por `se_name_mod`
+## Testigos por `se_name_mod`
 
 Si existe la columna `se_name_mod`, la app:
 
-- la marca automáticamente como agrupamiento
-- lista cada valor diferente de `se_name_mod`
-- pregunta si el testigo se incluye o no en el análisis
-- permite indicar cuál es el treatment testigo
-- trae por defecto el treatment testigo `1`
-- para `Fitotoxicidad (%)` y `Eficacia (%)`, el default es **No incluir testigo en el análisis**
+- la marca automaticamente como agrupamiento
+- detecta cada variable
+- pregunta si el testigo se incluye o no en el analisis
+- para `Fitotoxicidad (%)` y `Eficacia (%)`, el default es excluir testigo
 - el testigo excluido sigue apareciendo en el Excel descargable
-- sus columnas estadísticas quedan como `-`
-- queda marcado con `stats_status = excluded_control`
 
----
+## Como usarlo
 
-## Flujo de uso
-
-1. Pegá la tabla copiada desde Excel o CSV.
-2. Tocá **Cargar / Previsualizar**.
-3. Elegí:
-   - columna de valores
-   - columna de tratamiento
-   - columna de localidad
-   - alpha
-   - columnas de agrupamiento
-4. Elegí si querés analizar por localidad, por protocolo o ambas.
-5. Revisá la configuración por `se_name_mod` si aplica.
-6. Tocá **Ejecutar y descargar Excel**.
-7. Ingresá el nombre del análisis.
-8. Descargá el Excel.
-
----
-
-## Estructura del proyecto
-
-```bash
-repo/
-├── app.py
-├── app.js
-├── index.html
-├── styles.css
-├── requirements.txt
-├── runtime.txt
-└── README.md
-```
-
----
+1. Pega la tabla copiada desde Excel o CSV.
+2. Toca **Cargar / Previsualizar**.
+3. Selecciona columna de valores, tratamientos y localidad.
+4. Marca las columnas de grupo.
+5. Define el alcance: por localidad, por protocolo o ambas.
+6. Ajusta reglas de testigo si aparece `se_name_mod`.
+7. Toca **Ejecutar y descargar Excel**.
+8. Ingresa el nombre del analisis.
 
 ## Backend
 
-El backend está hecho con FastAPI y usa:
-
-- pandas
-- numpy
-- scipy
-- statsmodels
-- openpyxl
-
-Endpoints principales:
+Endpoint principal:
 
 - `POST /analyze`
-- `GET /status/{job_id}`
-- `GET /download/{job_id}`
-- `GET /health`
-- `GET /version`
 
----
+El frontend usa `API_BASE` en `app.js`.
 
-## Deploy sugerido
+Comando sugerido para hostear el backend FastAPI:
 
-Frontend:
-
-- GitHub Pages
-
-Backend:
-
-- Render
-
-Recordá revisar en `app.js` la constante:
-
-```js
-const API_BASE = "https://cp-analisis1.onrender.com";
+```bash
+uvicorn app:app --host 0.0.0.0 --port $PORT
 ```
 
-Si este repo usa otro backend en Render, reemplazá esa URL por la URL nueva.
+Para Render, este repo incluye `.python-version` con Python 3.11.9. Es importante porque Render puede usar Python 3.14 por defecto y algunas dependencias cientificas, como pandas/scipy/statsmodels, todavia pueden fallar al compilar en esa version.
+
+Archivos que deben subirse al repo:
+
+- `.python-version`
+- `render.yaml`
+- `Dockerfile`
+- `.dockerignore`
+- `app.py`
+- `requirements.txt`
+- `runtime.txt`
+- `index.html`
+- `styles.css`
+- `app.js`
+- `bayer-logo.jpg`
+- `README.md`
+
+Si Render sigue usando Python 3.14 aunque exista `PYTHON_VERSION=3.11.9`, crear el servicio como **Docker** usando el `Dockerfile` incluido. Ese archivo fija `python:3.11.9-slim` y evita que pandas intente compilarse con Python 3.14.

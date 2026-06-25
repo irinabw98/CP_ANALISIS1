@@ -3,87 +3,90 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Irina Labs | CP Análisis</title>
+  <title>Bayer | ANOVA Tukey</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <div class="lab-bg" aria-hidden="true">
-    <span>F</span>
-    <span>Σ</span>
-    <span>p</span>
-    <span>★</span>
-    <span>α</span>
-    <span>H₀</span>
-    <span>T</span>
-  </div>
-
-  <aside class="side-dock" id="sideDock" aria-label="Navegación Irina Labs">
-    <button class="dock-trigger" id="dockTrigger" type="button" aria-label="Abrir menú Irina Labs">☰</button>
-    <nav class="dock-panel">
-      <div class="dock-brand">
-        <span class="brand-orbit">✦</span>
-        <div>
-          <strong>Irina Labs</strong>
-          <small>espacio experimental</small>
-        </div>
-      </div>
-      <a href="https://irinabw98.github.io/irinabottini/">Inicio</a>
-      <a class="active" href="https://irinabw98.github.io/CP_ANALISIS1/">CP Análisis</a>
-      <a href="https://irinabw98.github.io/CP_FACTORIAL/">CP Factorial</a>
-      <a href="https://irinabw98.github.io/CP_Correlacion/">CP Correlación</a>
-      <a href="https://irinabw98.github.io/EtiquetadorCP_2.0/">Etiquetador CP</a>
-      <a href="https://irinabw98.github.io/Precipitaciones/">Precipitaciones</a>
-      <a href="#infoPanel">Información</a>
+  <header class="topbar">
+    <a class="brand-mark" href="#analisis" aria-label="ANOVA Tukey Bayer">
+      <img src="bayer-logo.jpg" alt="Bayer" />
+      <span>
+        <strong>ANOVA Tukey</strong>
+        <small>Analisis estadistico experimental</small>
+      </span>
+    </a>
+    <nav class="main-tabs" aria-label="Navegacion principal">
+      <a class="active" href="#datos" data-panel-link="analisis">Analisis</a>
+      <a href="#fundamentos">Ayuda estadistica</a>
+      <a href="#como-usarlo">¿Como usarlo?</a>
     </nav>
-  </aside>
-
-  <header class="hero-band">
-    <section class="hero compact-hero">
-      <div class="hero-copy">
-        <p class="eyebrow">Irina Labs · análisis estadístico experimental</p>
-        <h1>CP Análisis</h1>
-        <p class="subtitle">ANOVA + Tukey + LSD Fisher por grupos, con selector de análisis por localidad, por protocolo o ambas salidas.</p>
-        <p class="microcopy">Herramienta experimental para ordenar ensayos, conservar contexto y descargar un Excel trazable.</p>
-      </div>
-      <div class="hero-tools">
-        <div class="lisa-vibe-card" aria-label="Detalle visual científico">
-          <span class="mini-board">F → p → Tukey</span>
-          <span class="mini-star">★</span>
-          <span class="mini-note">grupos en marcha</span>
-          <span class="mini-sax">α</span>
-          <span class="mini-pearl">A B C</span>
-        </div>
-        <div class="status-card">
-          <span class="dot ok"></span>
-          <span>FastAPI · Excel</span>
-        </div>
-      </div>
-    </section>
   </header>
 
-  <main class="app-shell">
-    <section id="infoPanel" class="card info-card">
-      <div class="section-title">
-        <span>i</span>
-        <h2>Información del análisis</h2>
+  <section class="hero-band" id="analisis">
+    <div class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">Bayer Crop Science · soporte de decision</p>
+        <h1>ANOVA + Tukey + LSD Fisher</h1>
+        <p class="subtitle">Analiza ensayos por localidad, por protocolo o en ambas lecturas, y descarga un Excel trazable con resultados estadisticos al final de tu tabla original.</p>
       </div>
-      <p class="soft-note">La app corre análisis estadísticos por grupos sin perder la trazabilidad de localidad, protocolo, variable y tratamiento.</p>
-      <div class="info-grid">
+      <div class="hero-identity" aria-hidden="true">
+        <img src="bayer-logo.jpg" alt="" />
+        <span>F</span>
+        <span>p</span>
+        <span>α</span>
+      </div>
+    </div>
+  </section>
+
+  <main class="app-shell">
+    <section id="fundamentos" class="help-section aux-panel" hidden>
+      <details class="help-pop" open>
+        <summary>
+          <span class="question-badge">?</span>
+          <span>Fundamento estadistico de los analisis</span>
+        </summary>
+        <div class="help-grid">
+          <article>
+            <h3>ANOVA</h3>
+            <p>El ANOVA de una via contrasta la hipotesis nula de igualdad de medias entre tratamientos dentro de cada grupo experimental. Descompone la variabilidad total en variabilidad explicada por tratamientos y variabilidad residual, calcula el cociente F entre cuadrados medios y estima el p-valor bajo la distribucion F. En esta app se corre por cada combinacion de columnas de grupo y alcance seleccionado.</p>
+          </article>
+          <article>
+            <h3>Tukey HSD</h3>
+            <p>Tukey HSD es un post hoc para comparaciones multiples pareadas. Usa la distribucion del rango studentizado para evaluar diferencias entre medias y controla la tasa de error familiar cuando se comparan todos los tratamientos entre si. Es especialmente adecuado cuando se quieren letras de agrupamiento con un criterio mas conservador.</p>
+          </article>
+          <article>
+            <h3>LSD Fisher</h3>
+            <p>LSD Fisher compara diferencias entre pares de medias usando el cuadrado medio del error del ANOVA, los grados de libertad residuales y el valor critico de la distribucion t para el alpha definido. Al no ajustar tan estrictamente por todas las comparaciones, suele detectar mas separaciones, pero aumenta el riesgo de falsos positivos si se interpreta como prueba confirmatoria.</p>
+          </article>
+          <article>
+            <h3>Diferencia practica</h3>
+            <p>ANOVA responde si existe evidencia global de diferencias. Tukey y LSD identifican entre que tratamientos aparecen. Tukey prioriza control del error; LSD prioriza potencia exploratoria.</p>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <section id="como-usarlo" class="usage-section aux-panel" hidden>
+      <div class="section-title">
+        <span>?</span>
+        <h2>¿Como usarlo?</h2>
+      </div>
+      <div class="usage-grid">
         <article>
-          <h3>¿Qué hace?</h3>
-          <p>Ejecuta ANOVA, Tukey HSD y LSD Fisher usando la columna de valores, la columna de tratamiento y las columnas dinámicas que definen cada grupo experimental.</p>
+          <strong>1. Pega la tabla</strong>
+          <p>Copia desde Excel con encabezados en la primera fila. No hace falta modificar el orden de tus columnas.</p>
         </article>
         <article>
-          <h3>Localidad o protocolo</h3>
-          <p>Podés analizar cada localidad por separado, juntar todas las localidades como protocolo, o generar ambas lecturas en un mismo Excel.</p>
+          <strong>2. Configura columnas</strong>
+          <p>Selecciona valor, tratamiento, localidad y las columnas que definen cada grupo experimental.</p>
         </article>
         <article>
-          <h3>Salida trazable</h3>
-          <p>Cuando elegís ambas, el Excel diferencia las filas con <code>analysis_scope</code>, <code>analysis_basis</code> y <code>location_analysis_note</code>.</p>
+          <strong>3. Elige alcance</strong>
+          <p>Corre el modelo por localidad, por protocolo o en ambas formas para comparar lecturas.</p>
         </article>
         <article>
-          <h3>Testigos</h3>
-          <p>Si existe <code>se_name_mod</code>, podés excluir el testigo del cálculo para variables específicas sin eliminarlo del archivo descargable.</p>
+          <strong>4. Descarga</strong>
+          <p>El Excel conserva primero tus columnas originales y agrega al final las columnas calculadas.</p>
         </article>
       </div>
     </section>
@@ -91,10 +94,10 @@
     <section id="datos" class="card">
       <div class="section-title">
         <span>1</span>
-        <h2>Pegá tu tabla</h2>
+        <h2>Pega tu tabla</h2>
       </div>
-      <p class="hint">Copiá desde Excel o CSV. La primera fila debe ser encabezado y las filas siguientes deben contener los datos del ensayo.</p>
-      <textarea id="paste" placeholder="Pegá acá tu tabla..."></textarea>
+      <p class="hint">Copia desde Excel o CSV. La primera fila debe ser encabezado y las filas siguientes deben contener los datos del ensayo.</p>
+      <textarea id="paste" placeholder="Pega aca tu tabla..."></textarea>
       <div class="actions">
         <button id="btnParse" type="button" class="primary">Cargar / Previsualizar</button>
         <button id="btnClear" class="ghost" type="button">Limpiar</button>
@@ -105,7 +108,7 @@
     <section id="config" class="card">
       <div class="section-title">
         <span>2</span>
-        <h2>Configuración del análisis</h2>
+        <h2>Configuracion del analisis</h2>
       </div>
 
       <div class="grid four analysis-grid">
@@ -133,7 +136,7 @@
 
       <div class="column-block">
         <h3>Columnas de grupo</h3>
-        <p class="hint">Estas columnas definen dónde se calcula cada ANOVA. La localidad se maneja desde el bloque siguiente para evitar duplicaciones.</p>
+        <p class="hint">Estas columnas definen donde se calcula cada ANOVA. La localidad se maneja desde el bloque siguiente para evitar duplicaciones.</p>
         <div id="groupCols" class="chips"></div>
       </div>
     </section>
@@ -143,7 +146,7 @@
         <span>3</span>
         <h2>Alcance por localidad</h2>
       </div>
-      <p class="soft-note">Definí si el modelo separa localidades, junta todas las localidades o descarga ambas lecturas.</p>
+      <p class="soft-note">Define si el modelo separa localidades, junta todas las localidades o descarga ambas lecturas.</p>
 
       <div class="scope-grid" id="analysisScopeBox">
         <label class="scopeCard on">
@@ -163,32 +166,32 @@
         </label>
       </div>
 
-      <p class="soft-note callout-note">Si elegís <strong>Ambas</strong>, el Excel aclara qué líneas corresponden al análisis por localidad y cuáles al análisis por protocolo.</p>
+      <p class="soft-note callout-note">Si elegis <strong>Ambas</strong>, el Excel aclara que lineas corresponden al analisis por localidad y cuales al analisis por protocolo.</p>
     </section>
 
     <section id="testigo" class="card">
       <div class="section-title">
         <span>4</span>
-        <h2>Configuración por se_name_mod</h2>
+        <h2>Configuracion por se_name_mod</h2>
       </div>
-      <p class="hint">Cuando existe <code>se_name_mod</code>, podés excluir testigos del cálculo sin sacarlos del Excel final.</p>
+      <p class="hint">Cuando existe <code>se_name_mod</code>, podes excluir testigos del calculo sin sacarlos del Excel final.</p>
 
       <div id="seNameModPanel" class="seNameModPanel">
-        <p class="hint">Para cada variable detectada, definí si el testigo entra o no en el análisis. Para <code>Fitotoxicidad (%)</code> y <code>Eficacia (%)</code>, el default es excluir testigo.</p>
+        <p class="hint">Para cada variable detectada, defini si el testigo entra o no en el analisis. Para <code>Fitotoxicidad (%)</code> y <code>Eficacia (%)</code>, el default es excluir testigo.</p>
         <div id="seNameModRules" class="seNameModRules"></div>
       </div>
-      <p id="noSeNameMod" class="empty-state">Todavía no se detectó <code>se_name_mod</code>. Cargá la tabla para revisar esta sección.</p>
+      <p id="noSeNameMod" class="empty-state">Todavia no se detecto <code>se_name_mod</code>. Carga la tabla para revisar esta seccion.</p>
     </section>
 
     <section id="runPanel" class="card">
       <div class="section-title">
         <span>5</span>
-        <h2>Correr análisis</h2>
+        <h2>Correr analisis</h2>
       </div>
-      <p class="soft-note">Cuando esté configurado, generá el Excel con resultados, resumen por tratamiento y detalles estadísticos.</p>
+      <p class="soft-note">Cuando este configurado, genera el Excel con resultados, resumen por tratamiento y detalles estadisticos.</p>
       <div class="actions">
         <button id="btnAnalyze" class="primary large" type="button" disabled>Ejecutar y descargar Excel</button>
-        <span class="status-pill">Backend FastAPI · Export Excel</span>
+        <span class="status-pill">FastAPI · Export Excel</span>
       </div>
       <div id="progressWrap" class="progressWrap">
         <div class="progress"><div id="progressBar"></div></div>
@@ -205,9 +208,9 @@
       <div class="preview"><table id="previewTable"></table></div>
     </section>
 
-    <footer class="lab-footer">
-      <strong>Irina Labs</strong>
-      <span>Herramientas experimentales para análisis, datos y visualización.</span>
+    <footer class="footer-brand">
+      <img src="bayer-logo.jpg" alt="Bayer" />
+      <span>Herramienta para analisis estadistico experimental.</span>
     </footer>
   </main>
 

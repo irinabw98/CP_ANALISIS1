@@ -201,4 +201,39 @@ btnAnalyze.addEventListener("click",async()=>{
     },1000);
   }catch(e){console.error(e);status.textContent="Error al iniciar el análisis en el backend.";progressText.textContent="No se pudo crear el job.";btnAnalyze.disabled=false;btnParse.disabled=false;btnClear.disabled=false;}
 });
-resetProgress(); refreshScopeCards();
+function setVisibleInfoPanel(targetId, shouldScroll=false){
+  const panels=["fundamentos","como-usarlo"];
+  panels.forEach(id=>{
+    const panel=$(id);
+    if(!panel) return;
+    const visible=id===targetId;
+    panel.hidden=!visible;
+    panel.classList.toggle("is-visible",visible);
+  });
+  document.querySelectorAll(".main-tabs a").forEach(link=>{
+    const href=(link.getAttribute("href")||"").replace("#","");
+    const isAnalysis=link.dataset.panelLink==="analisis";
+    link.classList.toggle("active",targetId?href===targetId:isAnalysis);
+  });
+  if(shouldScroll){
+    const target=$(targetId||"datos");
+    if(target) target.scrollIntoView({behavior:"smooth",block:"start"});
+  }
+}
+function syncInfoPanelsFromHash(){
+  const hash=window.location.hash.replace("#","");
+  if(hash==="fundamentos"||hash==="como-usarlo"){
+    setVisibleInfoPanel(hash,false);
+    return;
+  }
+  setVisibleInfoPanel("",false);
+}
+document.querySelectorAll(".main-tabs a").forEach(link=>{
+  link.addEventListener("click",()=>{
+    const href=(link.getAttribute("href")||"").replace("#","");
+    setVisibleInfoPanel(href==="fundamentos"||href==="como-usarlo"?href:"",true);
+  });
+});
+window.addEventListener("hashchange",syncInfoPanelsFromHash);
+
+resetProgress(); refreshScopeCards(); syncInfoPanelsFromHash();
