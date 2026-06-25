@@ -12,10 +12,9 @@ import pandas as pd
 from fastapi import BackgroundTasks, Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from scipy.stats import f as fisher_f
+from scipy.stats import studentized_range
 from scipy.stats import t as student_t
-from statsmodels.formula.api import ols
-from statsmodels.stats.anova import anova_lm
-from statsmodels.stats.multicomp import pairwise_tukeyhsd
 
 app = FastAPI(title="ANOVA + Tukey + LSD Fisher (grouped) API")
 
@@ -256,22 +255,62 @@ def _run_tukey(
     value_col_num: str,
     trt_col: str,
     alpha: float,
+    mse: float,
+    df_resid: float,
 ) -> pd.DataFrame:
-    tuk = pairwise_tukeyhsd(
-        endog=gdf[value_col_num].values,
-        groups=gdf[trt_col].values,
-        alpha=alpha,
+    means = (
+        gdf.groupby(trt_col, dropna=False)[value_col_num]
+        .agg(n="count", mean="mean")
+        .reset_index()
+        .rename(columns={trt_col: "treatment"})
     )
-    tuk_df = pd.DataFrame(tuk._results_table.data[1:], columns=tuk._results_table.data[0])
-    tuk_df["reject"] = tuk_df["reject"].astype(bool)
 
-    for c in ["meandiff", "p-adj", "lower", "upper"]:
-        if c in tuk_df.columns:
-            tuk_df[c] = pd.to_numeric(tuk_df[c], errors="coerce")
+    treatments = means["treatment"].astype(str).tolist()
+    n_map = means.set_index("treatment")["n"].to_dict()
+    mean_map = means.set_index("treatment")["mean"].to_dict()
+    q_crit = studentized_range.ppf(1 - alpha, len(treatments), df_resid) if df_resid > 0 else np.nan
 
-    tuk_df["method"] = "tukey"
-    tuk_df["pvalue"] = pd.to_numeric(tuk_df.get("p-adj", np.nan), errors="coerce")
-    tuk_df = tuk_df.rename(columns={"p-adj": "p_adj"})
+    rows = []
+    for g1, g2 in combinations(treatments, 2):
+        mean1 = float(mean_map[g1])
+        mean2 = float(mean_map[g2])
+        n1 = float(n_map[g1])
+        n2 = float(n_map[g2])
+        diff = mean2 - mean1
+        se = np.sqrt((mse / 2.0) * ((1.0 / n1) + (1.0 / n2))) if n1 > 0 and n2 > 0 else np.nan
+
+        if np.isnan(se) or se == 0 or np.isnan(df_resid) or df_resid <= 0:
+            q_stat = np.nan
+            p_adj = np.nan
+            margin = np.nan
+            lower = np.nan
+            upper = np.nan
+            reject = False
+        else:
+            q_stat = abs(diff) / se
+            p_adj = studentized_range.sf(q_stat, len(treatments), df_resid)
+            margin = q_crit * se
+            lower = diff - margin
+            upper = diff + margin
+            reject = bool(p_adj < alpha)
+
+        rows.append({
+            "group1": g1,
+            "group2": g2,
+            "meandiff": diff,
+            "p_adj": p_adj,
+            "lower": lower,
+            "upper": upper,
+            "reject": reject,
+            "method": "tukey",
+            "pvalue": p_adj,
+        })
+
+    tuk_df = pd.DataFrame(rows)
+    if tuk_df.empty:
+        tuk_df = pd.DataFrame(columns=[
+            "group1", "group2", "meandiff", "p_adj", "lower", "upper", "reject", "method", "pvalue"
+        ])
 
     return tuk_df
 
@@ -281,7 +320,8 @@ def _run_lsd_fisher(
     value_col_num: str,
     trt_col: str,
     alpha: float,
-    model,
+    mse: float,
+    df_resid: float,
     anova_pvalue: float,
 ) -> pd.DataFrame:
     means = (
@@ -294,9 +334,6 @@ def _run_lsd_fisher(
     uniq_trt = means["treatment"].astype(str).tolist()
     n_map = means.set_index("treatment")["n"].to_dict()
     mean_map = means.set_index("treatment")["mean"].to_dict()
-
-    mse = float(model.mse_resid)
-    df_resid = float(model.df_resid)
 
     rows = []
     for g1, g2 in combinations(uniq_trt, 2):
@@ -382,17 +419,31 @@ def _run_group_analysis(
             f"Máximo permitido: {MAX_TREATMENTS_PER_GROUP}."
         )
 
-    model = ols(f"Q('{value_col_num}') ~ C(Q('{trt_col}'))", data=gdf).fit()
-    an = anova_lm(model, typ=2)
+    grouped_values = [
+        pd.to_numeric(group[value_col_num], errors="coerce").dropna().astype(float).to_numpy()
+        for _, group in gdf.groupby(trt_col, dropna=False, sort=False)
+    ]
+    grouped_values = [values for values in grouped_values if len(values) > 0]
+    k_groups = len(grouped_values)
+    n_total = int(sum(len(values) for values in grouped_values))
+    if k_groups < 2 or n_total <= k_groups:
+        raise ValueError("Grupo sin replicacion suficiente para estimar error residual.")
 
-    factor_row = an.iloc[0]
-    p_anova = float(factor_row.get("PR(>F)", np.nan))
+    grand_mean = float(np.concatenate(grouped_values).mean())
+    ss_between = float(sum(len(values) * ((float(values.mean()) - grand_mean) ** 2) for values in grouped_values))
+    ss_within = float(sum(((values - float(values.mean())) ** 2).sum() for values in grouped_values))
+    df_between = float(k_groups - 1)
+    df_resid = float(n_total - k_groups)
+    ms_between = ss_between / df_between if df_between > 0 else np.nan
+    mse = ss_within / df_resid if df_resid > 0 else np.nan
+    f_stat = ms_between / mse if mse and not np.isnan(mse) and mse > 0 else np.nan
+    p_anova = float(fisher_f.sf(f_stat, df_between, df_resid)) if not np.isnan(f_stat) else np.nan
 
     anova_out = pd.DataFrame([{
-        "df": float(factor_row.get("df", np.nan)),
-        "F": float(factor_row.get("F", np.nan)),
+        "df": df_between,
+        "F": f_stat,
         "pvalue": p_anova,
-        "df_resid": float(an.iloc[1].get("df", np.nan)),
+        "df_resid": df_resid,
     }])
 
     summary = (
@@ -402,7 +453,7 @@ def _run_group_analysis(
         .rename(columns={trt_col: "treatment"})
     )
 
-    tukey_pairs_df = _run_tukey(gdf, value_col_num, trt_col, alpha)
+    tukey_pairs_df = _run_tukey(gdf, value_col_num, trt_col, alpha, mse, df_resid)
     tukey_letters = _compact_letter_display(tukey_pairs_df, uniq_trt)
     tukey_letters = _relabel_letters_by_mean(summary[["treatment", "mean"]].copy(), tukey_letters)
 
@@ -424,7 +475,8 @@ def _run_group_analysis(
         value_col_num=value_col_num,
         trt_col=trt_col,
         alpha=alpha,
-        model=model,
+        mse=mse,
+        df_resid=df_resid,
         anova_pvalue=p_anova,
     )
 
