@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 from fastapi import BackgroundTasks, Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from scipy.stats import f as fisher_f
 from scipy.stats import studentized_range
 from scipy.stats import t as student_t
@@ -19,6 +19,7 @@ from scipy.stats import t as student_t
 app = FastAPI(title="ANOVA + Tukey + LSD Fisher (grouped) API")
 
 ALLOWED_ORIGINS = [
+    "*",
     "http://127.0.0.1:5500",
     "http://localhost:5500",
     "http://127.0.0.1:5501",
@@ -42,6 +43,26 @@ MAX_ROWS = 100000
 MAX_GROUPS = 5000
 MAX_TREATMENTS_PER_GROUP = 80
 JOB_TTL_SECONDS = 60 * 60 * 6
+
+
+@app.get("/")
+def root():
+    return FileResponse("index.html")
+
+
+@app.get("/styles.css")
+def styles():
+    return FileResponse("styles.css", media_type="text/css")
+
+
+@app.get("/app.js")
+def frontend_js():
+    return FileResponse("app.js", media_type="application/javascript")
+
+
+@app.get("/bayer-logo.jpg")
+def bayer_logo():
+    return FileResponse("bayer-logo.jpg", media_type="image/jpeg")
 
 
 def _now_ts() -> float:

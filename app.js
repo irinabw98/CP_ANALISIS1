@@ -1,4 +1,6 @@
-const API_BASE = "https://cp-analisis1.onrender.com";
+const API_BASE = window.location.hostname.endsWith("onrender.com")
+  ? window.location.origin
+  : "https://cp-analisis1.onrender.com";
 
 const $ = (id) => document.getElementById(id);
 const paste = $("paste");
